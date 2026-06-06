@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: translation_backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      # This ensures your uploaded and output PDFs are saved to your actual computer
+      - ./backend/uploads:/app/uploads
+      - ./backend/outputs:/app/outputs
+
+  frontend:
+    build: ./frontend
+    container_name: translation_frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    environment:
+      # Helps Vite hot-reloading work inside Docker
+      - CHOKIDAR_USEPOLLING=true

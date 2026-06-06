@@ -1,0 +1,20 @@
+# Environments
+backend/venv/
+backend/__pycache__/
+frontend/node_modules/
+frontend/dist/
+
+# Environment Variables (NEVER UPLOAD API KEYS!)
+.env
+backend/.env
+frontend/.env
+
+# Uploads and Outputs
+backend/uploads/*
+backend/outputs/*
+!backend/uploads/.gitkeep
+!backend/outputs/.gitkeep
+
+# OS generated files
+.DS_Store
+Thumbs.db
