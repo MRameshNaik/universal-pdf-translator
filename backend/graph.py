@@ -1,169 +1,94 @@
 
-
+######################### version 3 ###############
 # import os
 # import time
-# from typing import TypedDict, List, Dict
-# from langgraph.graph import StateGraph, END
-# from langchain_google_genai import ChatGoogleGenerativeAI
-# from pydantic import BaseModel, Field
-# from pdf_utils import extract_text_and_bboxes, reconstruct_pdf
-
-# llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
-
-# class TranslationItem(BaseModel):
-#     id: int = Field(description="The exact ID of the original text block")
-#     translated_text: str = Field(description="The translated text")
-
-# class TranslatedBlocks(BaseModel):
-#     translations: List[TranslationItem]
-
-# structured_llm = llm.with_structured_output(TranslatedBlocks)
-
-# class PDFState(TypedDict):
-#     pdf_path: str
-#     target_languages: List[str]
-#     extracted_pages: List[List[Dict]]
-#     output_files: List[str]
-
-# def extract_node(state: PDFState):
-#     extracted = extract_text_and_bboxes(state["pdf_path"])
-#     return {"extracted_pages": extracted}
-
-# def translate_and_reconstruct_node(state: PDFState):
-#     extracted_pages = state["extracted_pages"]
-#     target_languages = state["target_languages"]
-#     output_files = []
-
-#     for lang in target_languages:
-#         translated_pages_data = []
-        
-#         for page_num, page_blocks in enumerate(extracted_pages):
-#             if not page_blocks:
-#                 translated_pages_data.append({"original": [], "translated": []})
-#                 continue
-
-#             input_data = [{"id": i, "text": b["text"], "type": b["content_type"]} for i, b in enumerate(page_blocks)]
-            
-#             prompt = f"""You are an Expert Medical, Legal, and Official Document Translator.
-#             Translate the following JSON array of text blocks into {lang}. 
-            
-#             CRITICAL INSTRUCTIONS BASED ON 'type':
-#             1. If type is "heading": Translate formally and concisely.
-#             2. If type is "form_field": PRESERVE ALL underscores (___), checkboxes ([ ]), and brackets. Do not remove them.
-#             3. If type is "number_only": DO NOT TRANSLATE. Return the exact same text.
-#             4. If type is "paragraph": Translate naturally with proper grammar.
-            
-#             GLOSSARY & RULES (MUST FOLLOW):
-#             - "Subject" MUST be translated as "Participant/Patient". NEVER translate it as "Topic" or "Matter".
-#             - "Initial" MUST be translated as "Signature/Sign". NEVER translate it as "Start".
-#             - TRANSLITERATE names of doctors, people, and places accurately into the {lang} script.
-#             - DO NOT translate email addresses, URLs, or pure numbers.
-#             - You MUST return the exact same 'id' for each block. Do not combine or skip any IDs.
-            
-#             Data to translate: {input_data}"""
-            
-#             final_translations = []
-#             max_retries = 3
-            
-#             for attempt in range(max_retries):
-#                 try:
-#                     response = structured_llm.invoke(prompt)
-#                     trans_dict = {item.id: item.translated_text for item in response.translations}
-#                     for i, b in enumerate(page_blocks):
-#                         final_translations.append(trans_dict.get(i, b["text"]))
-#                     break 
-                    
-#                 except Exception as e:
-#                     error_msg = str(e)
-#                     if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-#                         print(f"Rate limit hit for {lang} (Page {page_num+1}). Waiting 15 seconds... (Attempt {attempt + 1}/{max_retries})")
-#                         time.sleep(15) 
-#                     else:
-#                         print(f"LLM Error on page {page_num+1} for {lang}: {e}")
-#                         final_translations = [b["text"] for b in page_blocks]
-#                         break
-#             else:
-#                 print(f"Failed to translate Page {page_num+1} after {max_retries} attempts. Falling back to English.")
-#                 final_translations = [b["text"] for b in page_blocks]
-
-#             translated_pages_data.append({
-#                 "original": page_blocks,
-#                 "translated": final_translations
-#             })
-            
-#             time.sleep(3) 
-            
-#         out_path = state["pdf_path"].replace(".pdf", f"_{lang}.pdf").replace("uploads", "outputs")
-#         reconstruct_pdf(state["pdf_path"], translated_pages_data, lang, out_path)
-#         output_files.append(out_path)
-
-#     return {"output_files": output_files}
-
-# workflow = StateGraph(PDFState)
-# workflow.add_node("extract", extract_node)
-# workflow.add_node("process", translate_and_reconstruct_node)
-
-# workflow.set_entry_point("extract")
-# workflow.add_edge("extract", "process")
-# workflow.add_edge("process", END)
-
-# app_graph = workflow.compile()
-
-
-# # version 2
-# import os
-# import time
+# import random
+# import concurrent.futures
+# import re
+# from bs4 import BeautifulSoup
 # from typing import TypedDict, List
 # from langgraph.graph import StateGraph, END
-# from langchain_google_genai import ChatGoogleGenerativeAI
+# from langchain_google_genai import ChatGoogleGenerativeAI, HarmCategory, HarmBlockThreshold
 # from langchain_core.messages import HumanMessage
 # from pdf_utils import pdf_to_base64_images, html_to_pdf
+# import fitz 
 
-# # Gemini 2.5 Flash is excellent for Vision + Coding + Translation
-# llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+# llm = ChatGoogleGenerativeAI(
+#     model="gemini-2.5-flash", 
+#     temperature=0.1,
+#     safety_settings={
+#         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+#         HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+#         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+#         HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+#     }
+# )
 
 # class PDFState(TypedDict):
 #     pdf_path: str
 #     target_languages: List[str]
-#     page_images: List[str]  # Base64 images
+#     page_images: List[str]
+#     raw_texts: List[str] # New state for Dual-Channel
 #     output_files: List[str]
 
 # def extract_images_node(state: PDFState):
-#     """Agent Step 1: 'See' the document by converting it to images."""
-#     print("Extracting images for Vision Agent...")
+#     print("[INFO] Extracting images and raw text for Dual-Channel Agent...")
 #     images = pdf_to_base64_images(state["pdf_path"])
-#     return {"page_images": images}
+    
+#     # 3. IMPACTFUL CHANGE: Dual-Channel Input (Extract raw text to assist the Vision model)
+#     doc = fitz.open(state["pdf_path"])
+#     raw_texts = [page.get_text("text") for page in doc]
+#     doc.close()
+    
+#     return {"page_images": images, "raw_texts": raw_texts}
 
 # def vision_translation_node(state: PDFState):
-#     """Agent Step 2 & 3: Analyze layout, Translate, and Generate HTML."""
 #     target_languages = state["target_languages"]
 #     page_images = state["page_images"]
+#     raw_texts = state["raw_texts"]
 #     output_files = []
 
 #     for lang in target_languages:
-#         print(f"Agent starting translation for: {lang}")
-#         translated_html_pages = []
+#         print(f"\n[INFO] --- Agent starting translation for: {lang} ---")
         
-#         for page_num, b64_img in enumerate(page_images):
+#         def process_single_page(page_data):
+#             page_num, b64_img = page_data
+#             raw_text = raw_texts[page_num]
 #             print(f"  -> Processing page {page_num + 1}...")
             
-#             # THE AGENTIC PROMPT
 #             prompt = f"""You are an Expert Frontend Developer and Medical/Legal Translator.
-#             I have provided an image of a document page.
+#             Recreate the visual layout of the provided document image using HTML5, and translate ALL text into {lang}.
             
-#             YOUR MISSION:
-#             1. Recreate the exact visual layout of this document using HTML5 and inline CSS.
-#             2. Translate ALL text into {lang}.
-#             3. Use CSS Flexbox or CSS Grid to perfectly align tables, signature blocks, and columns.
-#             4. PRESERVE ALL FORM ELEMENTS: Keep underscores (___), checkboxes ([ ]), and empty spaces exactly where they are.
-#             5. TRANSLITERATE names of people and places accurately into the {lang} script.
-#             6. "Subject" MUST be translated contextually as "Participant/Patient".
+#             To ensure maximum accuracy, here is the raw extracted text from the page. Use this text for translation accuracy, but rely on the IMAGE for the visual layout:
+#             RAW TEXT:
+#             {raw_text}
+            
+#             <CRITICAL_RULES>
+#             1. SEMANTIC GROUPING: If a sentence is visually broken by blank spaces, DO NOT translate word-by-word. Combine them into ONE grammatically perfect phrase in {lang} and place the blank line at the end.
+#             2. FORM BLANKS: Wherever you see a physical line meant for handwriting, you MUST insert `<span class="form-blank"></span>`. Do NOT type underscores.
+#             3. TABLE COLUMN ORDER: You MUST preserve the exact Left-to-Right order of table columns as seen in the image. If the 3rd column is an empty box, output an empty `<td></td>`.
+#             4. SIGNATURE BLOCKS: When you see side-by-side signatures, you MUST use this exact HTML structure:
+#                <table class="signature-table">
+#                  <tr>
+#                    <td><div class="sig-line"></div><br>Name</td>
+#                    <td><div class="sig-line"></div><br>Signature</td>
+#                    <td><div class="sig-line"></div><br>Date</td>
+#                  </tr>
+#                </table>
+#             5. DATA TABLES: For actual tables with visible grid lines, use `<table class="grid-table">`. Assign percentage widths to the first row.
+#             </CRITICAL_RULES>
+            
+#             <GLOSSARY>
+#             - "Subject" = Participant/Patient
+#             - "Initial" = Signature/Sign
+#             - DO NOT translate email addresses, URLs, or pure numbers.
+#             - CHECKBOXES: Use literal text `[ ]` for unchecked and `[X]` for checked.
+#             </GLOSSARY>
             
 #             OUTPUT FORMAT:
-#             Return ONLY valid HTML code. Do not include markdown formatting like ```html. Do not include <html> or <body> tags, just the inner content (divs, tables, p tags).
+#             Return ONLY valid HTML code. Do not include markdown formatting like ```html. Do not include <html>, <head>, or <body> tags, just the inner content.
 #             """
             
-#             # Create Multimodal Message
 #             message = HumanMessage(
 #                 content=[
 #                     {"type": "text", "text": prompt},
@@ -171,37 +96,61 @@
 #                 ]
 #             )
             
-#             # Retry Logic for Rate Limits
-#             max_retries = 3
+#             max_retries = 4
 #             for attempt in range(max_retries):
 #                 try:
 #                     response = llm.invoke([message])
-                    
-#                     # Clean the output (remove markdown code blocks if Gemini accidentally adds them)
 #                     clean_html = response.content.replace("```html", "").replace("```", "").strip()
-#                     translated_html_pages.append(clean_html)
-#                     break
+#                     clean_html = re.sub(r'_{4,}', '<span class="form-blank"></span>', clean_html)
+                    
+#                     # 4. IMPACTFUL CHANGE: BeautifulSoup HTML Repair
+#                     # This auto-closes any missing </div> or </table> tags that would crash WeasyPrint!
+#                     soup = BeautifulSoup(clean_html, "html.parser")
+#                     repaired_html = str(soup)
+                    
+#                     print(f"  -> [SUCCESS] Page {page_num + 1} translated and HTML repaired.")
+#                     return page_num, repaired_html
                     
 #                 except Exception as e:
 #                     if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-#                         print(f"Rate limit hit. Waiting 15s... (Attempt {attempt+1})")
-#                         time.sleep(15)
+#                         # 5. IMPACTFUL CHANGE: Backoff Jitter (Prevents Thundering Herd)
+#                         jitter = random.uniform(1, 3)
+#                         wait_time = (10 * (2 ** attempt)) + jitter
+#                         print(f"  -> [WARNING] Rate limit hit on page {page_num+1}. Waiting {wait_time:.2f}s... (Attempt {attempt+1})")
+#                         time.sleep(wait_time)
 #                     else:
-#                         print(f"Error on page {page_num+1}: {e}")
-#                         translated_html_pages.append(f"<p>Error translating page {page_num+1}</p>")
+#                         print(f"  -> [ERROR] Error on page {page_num+1}: {e}")
 #                         break
             
-#             time.sleep(3) # Safe delay between pages
+#             # 6. IMPACTFUL CHANGE: Fix the Fallback (Swap garbled text for the Base64 Image)
+#             print(f"  -> [FALLBACK] Injecting original image for page {page_num+1}.")
+#             fallback_html = f"""
+#             <div style="color: red; border: 2px solid red; padding: 15px; margin-bottom: 20px; text-align: center;">
+#                 <strong>[Translation Failed - Original Page Image Preserved Below]</strong>
+#             </div>
+#             <img class="fallback-img" src="data:image/png;base64,{b64_img}" />
+#             """
+#             return page_num, fallback_html
+
+#         # Parallel Processing
+#         translated_pages_unordered = []
+#         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+#             results = executor.map(process_single_page, enumerate(page_images))
+#             for result in results:
+#                 translated_pages_unordered.append(result)
+                
+#         translated_pages_unordered.sort(key=lambda x: x[0])
+#         translated_html_pages = [html for num, html in translated_pages_unordered]
             
-#         # Reconstruct the PDF using the generated HTML
 #         out_path = state["pdf_path"].replace(".pdf", f"_{lang}.pdf").replace("uploads", "outputs")
-#         print(f"Rendering final PDF for {lang}...")
-#         html_to_pdf(translated_html_pages, out_path)
+#         print(f"[INFO] Rendering final continuous PDF for {lang}...")
+        
+#         html_to_pdf(translated_html_pages, out_path, lang)
+        
 #         output_files.append(out_path)
 
 #     return {"output_files": output_files}
 
-# # Build LangGraph Workflow
 # workflow = StateGraph(PDFState)
 # workflow.add_node("extract", extract_images_node)
 # workflow.add_node("process", vision_translation_node)
@@ -212,101 +161,340 @@
 
 # app_graph = workflow.compile()
 
-# # verion 3 
+
+
+###################### Claudes improved code ###################################
+
+# """
+# graph.py  —  LangGraph pipeline for AI-powered PDF translation.
+
+# Improvements over v1:
+#   • Dual-channel prompting: each page gets BOTH its rendered image AND
+#     pdfplumber word-level text  →  image = layout authority, text = word accuracy.
+#     Eliminates medical-term misreads caused by low-DPI aliasing.
+#   • Sliding context window: the previous page's translated HTML is passed as
+#     [PREVIOUS PAGE CONTEXT] so the AI can maintain table continuity and avoid
+#     dropping cross-page sentences.
+#   • Correct fallback: failed pages inject the original page IMAGE (base64),
+#     not garbled PyMuPDF raw text  (which was unreadable for custom-encoded PDFs).
+#   • Backoff jitter: random.uniform(0, 3) added to retry waits so parallel
+#     threads de-synchronise and don't all slam the API simultaneously.
+#   • All HTML post-processing (underscore→span, checkbox→Unicode, BS4 repair)
+#     moved into pdf_utils.postprocess_page_html()  for a single clean call.
+#   • Back-translation quality gate: after each language is rendered, a second
+#     Claude/Gemini call checks for missing clauses or critical mistranslations
+#     and logs a WARNING if any are found.  (Non-blocking — output is still saved.)
+#   • max_workers reduced 3 → 2 to reduce simultaneous rate-limit pressure.
+# """
+
 # import os
+# import random
 # import time
 # import concurrent.futures
 # from typing import TypedDict, List
-# from langgraph.graph import StateGraph, END
-# from langchain_google_genai import ChatGoogleGenerativeAI
-# from langchain_core.messages import HumanMessage
-# from pdf_utils import pdf_to_base64_images, html_to_pdf
 
-# # Using Gemini 2.5 Flash
-# llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+# from langgraph.graph import StateGraph, END
+# from langchain_google_genai import (
+#     ChatGoogleGenerativeAI,
+#     HarmCategory,
+#     HarmBlockThreshold,
+# )
+# from langchain_core.messages import HumanMessage
+
+# from pdf_utils import (
+#     pdf_to_base64_images,
+#     html_to_pdf,
+#     postprocess_page_html,
+# )
+
+# # ---------------------------------------------------------------------------
+# # LLM setup
+# # ---------------------------------------------------------------------------
+
+# llm = ChatGoogleGenerativeAI(
+#     model="gemini-2.5-flash",
+#     temperature=0.1,
+#     safety_settings={
+#         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+#         HarmCategory.HARM_CATEGORY_HATE_SPEECH:       HarmBlockThreshold.BLOCK_ONLY_HIGH,
+#         HarmCategory.HARM_CATEGORY_HARASSMENT:        HarmBlockThreshold.BLOCK_ONLY_HIGH,
+#         HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+#     },
+# )
+
+# # ---------------------------------------------------------------------------
+# # State
+# # ---------------------------------------------------------------------------
 
 # class PDFState(TypedDict):
-#     pdf_path: str
+#     pdf_path:        str
 #     target_languages: List[str]
-#     page_images: List[str]
-#     output_files: List[str]
+#     page_images:     List[str]          # base-64 PNG per page
+#     page_texts:      List[str]          # pdfplumber word text per page
+#     output_files:    List[str]
 
-# def extract_images_node(state: PDFState):
-#     print("Extracting images for Vision Agent...")
-#     images = pdf_to_base64_images(state["pdf_path"])
-#     return {"page_images": images}
 
-# def vision_translation_node(state: PDFState):
+# # ---------------------------------------------------------------------------
+# # Node 1 — extraction
+# # ---------------------------------------------------------------------------
+
+# def extract_images_node(state: PDFState) -> dict:
+#     print("[INFO] Extracting page images (250 DPI) and word-level text …")
+#     images, page_texts = pdf_to_base64_images(state["pdf_path"], dpi=250)
+#     print(f"[INFO] Extracted {len(images)} pages.")
+#     return {"page_images": images, "page_texts": page_texts}
+
+
+# # ---------------------------------------------------------------------------
+# # Node 2 — translation
+# # ---------------------------------------------------------------------------
+
+# def _build_prompt(
+#     lang: str,
+#     source_text: str,
+#     prev_page_html: str | None,
+# ) -> str:
+#     """Build the translation prompt for a single page."""
+
+#     context_block = ""
+#     if prev_page_html:
+#         # Strip the HTML down to plain text so the token count stays low
+#         from bs4 import BeautifulSoup
+#         plain = BeautifulSoup(prev_page_html, "html.parser").get_text(" ", strip=True)[:1500]
+#         context_block = f"""
+# [PREVIOUS PAGE CONTEXT — DO NOT TRANSLATE — for table/sentence continuity only]
+# {plain}
+# [END CONTEXT]
+# """
+
+#     source_block = ""
+#     if source_text.strip():
+#         source_block = f"""
+# [AUTHORITATIVE SOURCE TEXT extracted from the PDF — use this for every word,
+#  do NOT invent text that isn't here]
+# {source_text}
+# [END SOURCE TEXT]
+# """
+
+#     return f"""You are an Expert Frontend Developer and Medical/Legal Translator.
+# Recreate the visual layout of the provided document image using HTML5, and translate ALL text into {lang}.
+# {context_block}{source_block}
+# CRITICAL CODING & LAYOUT RULES:
+# 1. NO FULL-PAGE TABLES: DO NOT wrap the entire document in a single <table>.
+#    Use tables ONLY for actual grids or side-by-side signature blocks.
+#    Use <p> and <div> for normal text.
+# 2. FILL-IN-THE-BLANKS: Use underscores (e.g. _________) for blank fields.
+#    GRAMMAR RULE: If a sentence is broken by blanks (e.g. "Address _____ of _____ subject"),
+#    translate it as ONE grammatically correct {lang} sentence and put the blank at the end.
+#    Example output: "ప్రతిభాగి చిరునామా: _________"
+# 3. MULTI-PAGE TABLE CONTINUITY:
+#    - Use <table class="grid-table"> for visible grids.
+#    - Assign % widths to the first row: <td style="width:10%;"> etc.
+#    - If a table continues from the PREVIOUS PAGE CONTEXT, keep the same column count.
+#    - DO NOT add headers that are not visible in the current image.
+#    - Write empty <td></td> for empty cells.
+# 4. SIGNATURE BLOCKS: Use a borderless table aligned horizontally.
+#    EXAMPLE:
+#    <table class="borderless" style="text-align:center; width:100%;">
+#      <tr>
+#        <td>_______________<br>Name</td>
+#        <td>_______________<br>Signature / Thumb impression</td>
+#        <td>_______________<br>Date (DD/MM/YYYY)</td>
+#      </tr>
+#    </table>
+# 5. CHECKBOXES: Use  [ ]  for unchecked and  [X]  for checked. (Pipeline will upgrade to ☐/☑.)
+
+# TRANSLATION RULES:
+# - "Subject" → translate contextually as "Participant / Patient".
+# - "Initial" → translate as "Signature / Sign".
+# - TRANSLITERATE names of people (e.g. DR MUDHAVATH KARTHIK NAIK) and places
+#   (HYDERABAD, ESIC) accurately into the {lang} script.
+# - DO NOT translate email addresses, URLs, or pure numbers.
+# - If the SOURCE TEXT above shows a word clearly but the image is ambiguous,
+#   trust the SOURCE TEXT.
+
+# OUTPUT FORMAT:
+# Return ONLY valid HTML. No markdown fences (```html). No <html>, <head>, or <body> tags.
+# Inner content only.
+# """
+
+
+# def _translate_page(
+#     page_num: int,
+#     b64_img: str,
+#     source_text: str,
+#     prev_page_html: str | None,
+#     lang: str,
+# ) -> tuple[int, str]:
+#     """Translate a single page. Returns (page_num, translated_html)."""
+
+#     prompt = _build_prompt(lang, source_text, prev_page_html)
+
+#     message = HumanMessage(
+#         content=[
+#             {"type": "text",      "text": prompt},
+#             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}},
+#         ]
+#     )
+
+#     max_retries = 4
+#     for attempt in range(max_retries):
+#         try:
+#             response  = llm.invoke([message])
+#             clean_html = postprocess_page_html(response.content)
+#             print(f"  -> [SUCCESS] Page {page_num + 1} translated.")
+#             return page_num, clean_html
+
+#         except Exception as exc:
+#             is_rate_limit = "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc)
+#             if is_rate_limit:
+#                 # Jitter prevents all parallel threads from retrying simultaneously
+#                 base_wait  = 10 * (2 ** attempt)
+#                 jitter     = random.uniform(0, 3)
+#                 wait_time  = base_wait + jitter
+#                 print(
+#                     f"  -> [WARNING] Rate limit on page {page_num + 1}. "
+#                     f"Waiting {wait_time:.1f}s … (attempt {attempt + 1}/{max_retries})"
+#                 )
+#                 time.sleep(wait_time)
+#             else:
+#                 print(f"  -> [ERROR] Page {page_num + 1}: {exc}")
+#                 break  # non-rate-limit error → skip retries, use fallback
+
+#     # ---- Bulletproof fallback: embed the original page IMAGE ----
+#     # (Never use raw PyMuPDF text — it is garbled for custom-encoded PDFs.)
+#     print(f"  -> [FALLBACK] Embedding original page image for page {page_num + 1}.")
+#     fallback_html = f"""
+# <div class="fallback-banner">
+#     [Translation blocked — original page image preserved below]
+# </div>
+# <img src="data:image/png;base64,{b64_img}" alt="Original page {page_num + 1}" />
+# """
+#     return page_num, fallback_html
+
+
+# def _quality_check(
+#     original_english_text: str,
+#     translated_pages_html: list[str],
+#     lang: str,
+# ) -> None:
+#     """
+#     Non-blocking back-translation quality gate.
+#     Sends a short summary of both the source and translated text to the LLM
+#     and asks it to flag missing consent clauses or critical mistranslations.
+#     Logs WARNING but does NOT raise — the PDF is still saved.
+#     """
+#     from bs4 import BeautifulSoup
+
+#     translated_plain = " ".join(
+#         BeautifulSoup(h, "html.parser").get_text(" ", strip=True)
+#         for h in translated_pages_html
+#     )[:3000]
+
+#     source_snippet = original_english_text[:2000]
+
+#     check_prompt = f"""You are a medical translation quality reviewer.
+
+# Below is the ORIGINAL English informed consent document (excerpt) and its {lang} translation.
+
+# ORIGINAL (English):
+# {source_snippet}
+
+# TRANSLATED ({lang}):
+# {translated_plain}
+
+# Task:
+# 1. Check whether all major consent clauses are present in the translation
+#    (purpose of study, voluntary participation, risks, withdrawal rights, confidentiality,
+#    contact details, signature section).
+# 2. Flag any critical medical terms that appear mistranslated or omitted.
+# 3. Reply in English. Be concise. If everything is fine, reply: "QUALITY OK".
+#    Otherwise list issues as: "ISSUE: <description>".
+# """
+
+#     try:
+#         response = llm.invoke([HumanMessage(content=check_prompt)])
+#         result   = response.content.strip()
+#         if "QUALITY OK" in result.upper():
+#             print(f"  [QA] {lang}: QUALITY OK ✓")
+#         else:
+#             print(f"  [QA WARNING] {lang} translation issues detected:\n{result}")
+#     except Exception as exc:
+#         print(f"  [QA] Quality check failed (non-fatal): {exc}")
+
+
+# def vision_translation_node(state: PDFState) -> dict:
 #     target_languages = state["target_languages"]
-#     page_images = state["page_images"]
-#     output_files = []
+#     page_images      = state["page_images"]
+#     page_texts       = state["page_texts"]
+#     output_files     = []
+
+#     # Combine all source text for quality check
+#     full_source_text = "\n\n--- PAGE BREAK ---\n\n".join(page_texts)
 
 #     for lang in target_languages:
-#         print(f"\nAgent starting translation for: {lang}")
-        
-#         # Function to process a single page (Allows Parallel Execution)
-#         def process_single_page(page_data):
-#             page_num, b64_img = page_data
-#             print(f"  -> Processing page {page_num + 1}...")
-            
-#             prompt = f"""You are an Expert Frontend Developer and Medical/Legal Translator.
-#             I have provided an image of a document page.
-            
-#             YOUR MISSION:
-#             1. Recreate the exact visual layout of this document using HTML5.
-#             2. Translate ALL text into {lang}.
-#             3. TABLES MUST BE FULL WIDTH: Use <table style="width: 100%;"> for all tables.
-#             4. CONTINUOUS FLOW: Do not add artificial page breaks.
-#             5. PRESERVE ALL FORM ELEMENTS: Keep underscores (___), checkboxes ([ ]), and empty spaces exactly where they are.
-#             6. TRANSLITERATE names of people and places accurately into the {lang} script.
-#             7. "Subject" MUST be translated contextually as "Participant/Patient".
-            
-#             OUTPUT FORMAT:
-#             Return ONLY valid HTML code. Do not include markdown formatting like ```html. Do not include <html> or <body> tags, just the inner content (divs, tables, p tags).
-#             """
-            
-#             message = HumanMessage(
-#                 content=[
-#                     {"type": "text", "text": prompt},
-#                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}}
-#                 ]
-#             )
-            
-#             max_retries = 3
-#             for attempt in range(max_retries):
-#                 try:
-#                     response = llm.invoke([message])
-#                     clean_html = response.content.replace("```html", "").replace("```", "").strip()
-#                     return page_num, clean_html
-#                 except Exception as e:
-#                     if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-#                         print(f"Rate limit hit on page {page_num+1}. Waiting 15s... (Attempt {attempt+1})")
-#                         time.sleep(15)
-#                     else:
-#                         print(f"Error on page {page_num+1}: {e}")
-#                         return page_num, f"<p>Error translating page {page_num+1}</p>"
-            
-#             return page_num, f"<p>Failed to translate page {page_num+1}</p>"
+#         print(f"\n[INFO] ─── Starting translation: {lang} ───")
+#         lang_start = time.time()
 
-#         # FIX: Safe Parallel Processing (Cuts time in half!)
-#         # max_workers=2 ensures we process fast but don't instantly trigger Google's 15 RPM limit
-#         translated_pages_unordered = []
+#         # ------------------------------------------------------------------
+#         # Parallel translation — max_workers=2 to reduce rate-limit pressure
+#         # Sequential prev_page_html context is built AFTER all pages complete
+#         # (parallel execution means we can't do true sequential sliding window,
+#         #  but we pass the prior page's text from the pdfplumber extraction
+#         #  which gives reasonable continuity at zero extra API cost).
+#         # ------------------------------------------------------------------
+
+#         def _task(args):
+#             page_num, b64_img, src_text, prev_html = args
+#             return _translate_page(page_num, b64_img, src_text, prev_html, lang)
+
+#         # Build (page_num, image, source_text, prev_source_text) tuples.
+#         # For the context we use the pdfplumber text of page N-1 as a lightweight
+#         # proxy; it's not translated HTML but gives the AI vocabulary continuity.
+#         tasks = []
+#         for i, (img, txt) in enumerate(zip(page_images, page_texts)):
+#             prev_context = page_texts[i - 1] if i > 0 else None
+#             tasks.append((i, img, txt, prev_context))
+
+#         results_unordered: list[tuple[int, str]] = []
 #         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-#             results = executor.map(process_single_page, enumerate(page_images))
-#             for result in results:
-#                 translated_pages_unordered.append(result)
-                
-#         # Sort pages back into correct order (since parallel processing finishes out of order)
-#         translated_pages_unordered.sort(key=lambda x: x[0])
-#         translated_html_pages = [html for num, html in translated_pages_unordered]
-            
-#         # Reconstruct the PDF
-#         out_path = state["pdf_path"].replace(".pdf", f"_{lang}.pdf").replace("uploads", "outputs")
-#         print(f"Rendering final continuous PDF for {lang}...")
-#         html_to_pdf(translated_html_pages, out_path)
+#             for result in executor.map(_task, tasks):
+#                 results_unordered.append(result)
+
+#         results_unordered.sort(key=lambda x: x[0])
+#         translated_html_pages = [html for _, html in results_unordered]
+
+#         # ------------------------------------------------------------------
+#         # Quality gate (non-blocking)
+#         # ------------------------------------------------------------------
+#         print(f"[INFO] Running quality check for {lang} …")
+#         _quality_check(full_source_text, translated_html_pages, lang)
+
+#         # ------------------------------------------------------------------
+#         # Render to PDF
+#         # ------------------------------------------------------------------
+#         out_path = (
+#             state["pdf_path"]
+#             .replace(".pdf", f"_{lang}.pdf")
+#             .replace("uploads", "outputs")
+#         )
+#         print(f"[INFO] Rendering PDF → {out_path}")
+#         render_start = time.time()
+#         html_to_pdf(translated_html_pages, out_path, lang)
+#         print(
+#             f"[TIME] Rendered in {time.time() - render_start:.1f}s | "
+#             f"Total {lang}: {time.time() - lang_start:.1f}s"
+#         )
+
 #         output_files.append(out_path)
+#         print(f"[SUCCESS] ─── {lang} complete ───")
 
 #     return {"output_files": output_files}
+
+
+# # ---------------------------------------------------------------------------
+# # Graph assembly
+# # ---------------------------------------------------------------------------
 
 # workflow = StateGraph(PDFState)
 # workflow.add_node("extract", extract_images_node)
@@ -320,100 +508,169 @@
 
 
 import os
+import random
 import time
 import concurrent.futures
 from typing import TypedDict, List
-from langgraph.graph import StateGraph, END
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage
-from pdf_utils import pdf_to_base64_images, html_to_pdf
 
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+from langgraph.graph import StateGraph, END
+from langchain_google_genai import (
+    ChatGoogleGenerativeAI,
+    HarmCategory,
+    HarmBlockThreshold,
+)
+from langchain_core.messages import HumanMessage
+
+from pdf_utils import (
+    pdf_to_base64_images,
+    html_to_pdf,
+    postprocess_page_html,
+)
+from logger import send_log # THE FIX: Import the logger
+
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    temperature=0.1,
+    safety_settings={
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH:       HarmBlockThreshold.BLOCK_ONLY_HIGH,
+        HarmCategory.HARM_CATEGORY_HARASSMENT:        HarmBlockThreshold.BLOCK_ONLY_HIGH,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    },
+)
 
 class PDFState(TypedDict):
-    pdf_path: str
+    pdf_path:        str
     target_languages: List[str]
-    page_images: List[str]
-    output_files: List[str]
+    page_images:     List[str]          
+    page_texts:      List[str]          
+    output_files:    List[str]
+    client_id:       str # THE FIX: Added client_id to State
 
-def extract_images_node(state: PDFState):
-    print("Extracting images for Vision Agent...")
-    images = pdf_to_base64_images(state["pdf_path"])
-    return {"page_images": images}
+def extract_images_node(state: PDFState) -> dict:
+    cid = state.get("client_id")
+    send_log(cid, "[INFO] Extracting page images (250 DPI) and word-level text …")
+    images, page_texts = pdf_to_base64_images(state["pdf_path"], dpi=250)
+    send_log(cid, f"[INFO] Extracted {len(images)} pages.")
+    return {"page_images": images, "page_texts": page_texts}
 
-def vision_translation_node(state: PDFState):
+def _build_prompt(lang: str, source_text: str, prev_page_html: str | None) -> str:
+    context_block = ""
+    if prev_page_html:
+        from bs4 import BeautifulSoup
+        plain = BeautifulSoup(prev_page_html, "html.parser").get_text(" ", strip=True)[:1500]
+        context_block = f"""\n[PREVIOUS PAGE CONTEXT — DO NOT TRANSLATE — for table/sentence continuity only]\n{plain}\n[END CONTEXT]\n"""
+
+    source_block = ""
+    if source_text.strip():
+        source_block = f"""\n[AUTHORITATIVE SOURCE TEXT extracted from the PDF — use this for every word]\n{source_text}\n[END SOURCE TEXT]\n"""
+
+    return f"""You are an Expert Frontend Developer and Medical/Legal Translator.
+Recreate the visual layout of the provided document image using HTML5, and translate ALL text into {lang}.
+{context_block}{source_block}
+CRITICAL CODING & LAYOUT RULES:
+1. NO FULL-PAGE TABLES: DO NOT wrap the entire document in a single <table>. Use tables ONLY for actual grids or side-by-side signature blocks.
+2. MISSING BLANK LINES (CRITICAL): The RAW TEXT above strips out blank lines. You MUST look at the IMAGE. Wherever you see a physical line meant for handwriting (e.g., "Date: ______"), you MUST type underscores `_________` in your HTML. DO NOT SKIP THEM! Do NOT use <hr> tags.
+   GRAMMAR RULE: If a sentence is broken by blanks, translate it as ONE grammatically correct {lang} sentence and put the blank at the end.
+3. MULTI-PAGE TABLE CONTINUITY:
+   - Use <table class="grid-table"> for visible grids.
+   - Assign % widths to the first row: <td style="width:10%;"> etc.
+   - If a table continues from the PREVIOUS PAGE CONTEXT, keep the same column count.
+   - Write empty <td></td> for empty cells.
+4. SIGNATURE BLOCKS: Use a borderless table aligned horizontally.
+   YOU MUST INCLUDE THE UNDERSCORES IN THE HTML:
+   <table class="borderless" style="text-align:center; width:100%;">
+     <tr>
+       <td>_________<br>Name</td>
+       <td>_________<br>Signature</td>
+       <td>_________<br>Date</td>
+     </tr>
+   </table>
+5. CHECKBOXES: Use  [ ]  for unchecked and  [X]  for checked.
+
+TRANSLATION RULES:
+- "Subject" → translate contextually as "Participant / Patient".
+- "Initial" → translate as "Signature / Sign".
+- TRANSLITERATE names of people and places accurately into the {lang} script.
+- DO NOT translate email addresses, URLs, or pure numbers.
+
+OUTPUT FORMAT:
+Return ONLY valid HTML. No markdown fences. No <html>, <head>, or <body> tags. Inner content only.
+"""
+
+def _translate_page(page_num: int, b64_img: str, source_text: str, prev_page_html: str | None, lang: str, cid: str) -> tuple[int, str]:
+    prompt = _build_prompt(lang, source_text, prev_page_html)
+    message = HumanMessage(
+        content=[
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}},
+        ]
+    )
+
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            response  = llm.invoke([message])
+            clean_html = postprocess_page_html(response.content)
+            send_log(cid, f"  -> [SUCCESS] Page {page_num + 1} translated.")
+            return page_num, clean_html
+        except Exception as exc:
+            is_rate_limit = "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc)
+            if is_rate_limit:
+                base_wait  = 10 * (2 ** attempt)
+                jitter     = random.uniform(0, 3)
+                wait_time  = base_wait + jitter
+                send_log(cid, f"  -> [WARNING] Rate limit on page {page_num + 1}. Waiting {wait_time:.1f}s … (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                send_log(cid, f"  -> [ERROR] Page {page_num + 1}: {exc}")
+                break
+
+    send_log(cid, f"  -> [FALLBACK] Embedding original page image for page {page_num + 1}.")
+    fallback_html = f"""
+<div class="fallback-banner">
+    [Translation blocked — original page image preserved below]
+</div>
+<img src="data:image/png;base64,{b64_img}" alt="Original page {page_num + 1}" />
+"""
+    return page_num, fallback_html
+
+def vision_translation_node(state: PDFState) -> dict:
     target_languages = state["target_languages"]
-    page_images = state["page_images"]
-    output_files = []
+    page_images      = state["page_images"]
+    page_texts       = state["page_texts"]
+    cid              = state.get("client_id")
+    output_files     = []
 
     for lang in target_languages:
-        print(f"\nAgent starting translation for: {lang}")
-        
-        def process_single_page(page_data):
-            page_num, b64_img = page_data
-            print(f"  -> Processing page {page_num + 1}...")
-            
-            # THE UPDATED PROMPT (Fixes Boxes and Signatures)
-            prompt = f"""You are an Expert Frontend Developer and Medical/Legal Translator.
-            Recreate the exact visual layout of the provided document image using HTML5, and translate ALL text into {lang}.
-            
-            CRITICAL CODING RULES (MUST FOLLOW):
-            1. DATA TABLES vs LAYOUT TABLES:
-               - If you see an actual table with visible black grid lines, you MUST use `<table class="grid-table">`.
-               - If you are aligning signature blocks, dates, or headers side-by-side, use a normal `<table>` (which has no borders).
-            2. NO INPUT TAGS: Do NOT use <input> tags. Use literal text like `[ ]` for checkboxes and `_________` for blank lines. Match the approximate length of the original blank lines.
-            3. STRICT TABLE WIDTHS: For grid-tables, assign percentage widths to the columns in the first row (e.g., `<td style="width: 15%;">`) to prevent distortion.
-            4. Do not use absolute positioning (`position: absolute`).
-            
-            TRANSLATION RULES:
-            - "Subject" MUST be translated contextually as "Participant/Patient".
-            - "Initial" MUST be translated as "Signature/Sign".
-            - TRANSLITERATE names of people and places accurately into the {lang} script.
-            - DO NOT translate email addresses, URLs, or pure numbers.
-            
-            OUTPUT FORMAT:
-            Return ONLY valid HTML code. Do not include markdown formatting like ```html. Do not include <html>, <head>, or <body> tags, just the inner content.
-            """
-            
-            message = HumanMessage(
-                content=[
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_img}"}}
-                ]
-            )
-            
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    response = llm.invoke([message])
-                    clean_html = response.content.replace("```html", "").replace("```", "").strip()
-                    return page_num, clean_html
-                except Exception as e:
-                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                        print(f"Rate limit hit on page {page_num+1}. Waiting 15s... (Attempt {attempt+1})")
-                        time.sleep(15)
-                    else:
-                        print(f"Error on page {page_num+1}: {e}")
-                        return page_num, f"<p>Error translating page {page_num+1}</p>"
-            
-            return page_num, f"<p>Failed to translate page {page_num+1}</p>"
+        send_log(cid, f"\n[INFO] ─── Starting translation: {lang} ───")
+        lang_start = time.time()
 
-        # Parallel Processing (2 pages at a time)
-        translated_pages_unordered = []
+        def _task(args):
+            page_num, b64_img, src_text, prev_html = args
+            return _translate_page(page_num, b64_img, src_text, prev_html, lang, cid)
+
+        tasks = []
+        for i, (img, txt) in enumerate(zip(page_images, page_texts)):
+            prev_context = page_texts[i - 1] if i > 0 else None
+            tasks.append((i, img, txt, prev_context))
+
+        results_unordered: list[tuple[int, str]] = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            results = executor.map(process_single_page, enumerate(page_images))
-            for result in results:
-                translated_pages_unordered.append(result)
-                
-        # Sort pages back into correct order
-        translated_pages_unordered.sort(key=lambda x: x[0])
-        translated_html_pages = [html for num, html in translated_pages_unordered]
-            
-        # Reconstruct the PDF
+            for result in executor.map(_task, tasks):
+                results_unordered.append(result)
+
+        results_unordered.sort(key=lambda x: x[0])
+        translated_html_pages = [html for _, html in results_unordered]
+
         out_path = state["pdf_path"].replace(".pdf", f"_{lang}.pdf").replace("uploads", "outputs")
-        print(f"Rendering final continuous PDF for {lang}...")
-        html_to_pdf(translated_html_pages, out_path)
+        send_log(cid, f"[INFO] Rendering PDF → {out_path}")
+        render_start = time.time()
+        html_to_pdf(translated_html_pages, out_path, lang)
+        send_log(cid, f"[TIME] Rendered in {time.time() - render_start:.1f}s | Total {lang}: {time.time() - lang_start:.1f}s")
+
         output_files.append(out_path)
+        send_log(cid, f"[SUCCESS] ─── {lang} complete ───")
 
     return {"output_files": output_files}
 

@@ -1,9 +1,13 @@
 
 
+
+################ version 3  ###########################
+
 # import fitz  # PyMuPDF
+# import base64
 # import os
-# import html
-# import re
+# from weasyprint import HTML, CSS
+# from weasyprint.text.fonts import FontConfiguration
 
 # FONT_MAP = {
 #     "English": {"regular": "NotoSans-Regular.ttf", "bold": "NotoSans-Bold.ttf"},
@@ -16,336 +20,586 @@
 #     "Gujarati": {"regular": "NotoSansGujarati-Regular.ttf", "bold": "NotoSansGujarati-Bold.ttf"}
 # }
 
-# def extract_text_and_bboxes(pdf_path):
-#     doc = fitz.open(pdf_path)
-#     pages_data = []
-    
-#     for page in doc:
-#         page_width = page.rect.width
-#         blocks = page.get_text("dict")["blocks"]
-#         page_blocks = []
-        
-#         for b in blocks:
-#             if b['type'] == 0: 
-#                 text = ""
-#                 sizes = []
-#                 bold_char_count = 0
-#                 total_char_count = 0
-#                 span_bboxes = []
-                
-#                 for line in b['lines']:
-#                     for span in line['spans']:
-#                         span_text = span['text']
-                        
-#                         # Ignore underscores and signature lines
-#                         if re.match(r'^[\s_.-]+$', span_text):
-#                             continue
-                            
-#                         text += span_text + " "
-#                         sizes.append(span['size'])
-                        
-#                         char_len = len(span_text.strip())
-#                         total_char_count += char_len
-                        
-#                         if "Bold" in span['font'] or (span['flags'] & 16):
-#                             bold_char_count += char_len
-                            
-#                         if span_text.strip():
-#                             span_bboxes.append(span['bbox'])
-                
-#                 text = text.strip()
-#                 if text:
-#                     avg_size = sum(sizes) / len(sizes) if sizes else 10
-#                     is_bold = (bold_char_count / total_char_count) > 0.5 if total_char_count > 0 else False
-                    
-#                     bbox = b['bbox']
-#                     is_centered = False
-#                     if bbox[0] > (page_width * 0.20) and bbox[2] < (page_width * 0.80):
-#                         is_centered = True
-                        
-#                     content_type = "paragraph"
-#                     if is_bold or is_centered:
-#                         content_type = "heading"
-#                     elif re.search(r'_{2,}|\[\s*\]', text): 
-#                         content_type = "form_field"
-#                     elif re.match(r'^[\d\s.,+()]+$', text): 
-#                         content_type = "number_only"
-                    
-#                     page_blocks.append({
-#                         "bbox": bbox,
-#                         "text": text,
-#                         "font_size": avg_size,
-#                         "is_bold": is_bold,
-#                         "is_centered": is_centered,
-#                         "content_type": content_type,
-#                         "spans": span_bboxes
-#                     })
-#         pages_data.append(page_blocks)
-#     doc.close()
-#     return pages_data
-
-# def reconstruct_pdf(original_pdf_path, translated_pages, target_lang, output_path):
-#     doc = fitz.open(original_pdf_path)
-    
-#     fonts = FONT_MAP.get(target_lang, FONT_MAP["English"])
-#     reg_path = os.path.join("fonts", fonts["regular"])
-#     bold_path = os.path.join("fonts", fonts["bold"])
-    
-#     archive = fitz.Archive()
-#     if os.path.exists(reg_path):
-#         with open(reg_path, "rb") as f:
-#             archive.add(f.read(), "font_regular.ttf")
-#     if os.path.exists(bold_path):
-#         with open(bold_path, "rb") as f:
-#             archive.add(f.read(), "font_bold.ttf")
-    
-#     for page_num, page in enumerate(doc):
-#         original_blocks = translated_pages[page_num]['original']
-#         translated_texts = translated_pages[page_num]['translated']
-        
-#         # 1. EXTRACT ALL PHYSICAL LINES (The Grid)
-#         v_lines = [0, page.rect.width]
-#         h_lines = [0, page.rect.height]
-        
-#         for p in page.get_drawings():
-#             for item in p["items"]:
-#                 if item[0] == "l":
-#                     p1, p2 = item[1], item[2]
-#                     # Must be at least 20px long to be considered a table line (ignores checkboxes)
-#                     if abs(p1.x - p2.x) < 2 and abs(p1.y - p2.y) > 20: v_lines.append(p1.x)
-#                     if abs(p1.y - p2.y) < 2 and abs(p1.x - p2.x) > 20: h_lines.append(p1.y)
-#                 elif item[0] == "re":
-#                     r = item[1]
-#                     v_lines.extend([r.x0, r.x1])
-#                     h_lines.extend([r.y0, r.y1])
-                    
-#         try:
-#             for tab in page.find_tables():
-#                 for row in tab.cells:
-#                     for cell in row:
-#                         if cell:
-#                             v_lines.extend([cell[0], cell[2]])
-#                             h_lines.extend([cell[1], cell[3]])
-#         except Exception:
-#             pass
-
-#         # Sort and clean the lines
-#         v_lines = sorted(list(set([round(x, 1) for x in v_lines])))
-#         h_lines = sorted(list(set([round(y, 1) for y in h_lines])))
-        
-#         # PASS 1: Erase original text
-#         for block in original_blocks:
-#             for span_bbox in block.get("spans", []):
-#                 rect = fitz.Rect(span_bbox)
-#                 rect.x0 -= 1; rect.y0 -= 1; rect.x1 += 1; rect.y1 += 1
-#                 page.draw_rect(rect, color=(1, 1, 1), fill=(1, 1, 1))
-            
-#         # PASS 2: Draw Translated Text inside Absolute Cages
-#         for i, block in enumerate(original_blocks):
-#             orig_rect = fitz.Rect(block["bbox"])
-#             rect = fitz.Rect(orig_rect)
-#             new_text = translated_texts[i]
-            
-#             safe_text = html.escape(new_text).replace('\n', '<br>')
-#             if block.get("is_bold"):
-#                 safe_text = f"<b>{safe_text}</b>"
-            
-#             # Reduce font size to 70% to ensure bulky scripts fit in table cells
-#             f_size = block.get("font_size", 10) * 0.70
-#             text_align = "center" if block.get("is_centered") else "left"
-            
-#             # CSS: Added hyphens and strict word-wrap to force breaks at borders
-#             css = f"""
-#             @font-face {{ font-family: 'CustomFont'; src: url('font_regular.ttf'); font-weight: normal; }}
-#             @font-face {{ font-family: 'CustomFont'; src: url('font_bold.ttf'); font-weight: bold; }}
-#             * {{ font-family: 'CustomFont'; font-size: {f_size}pt; line-height: 1.2; color: black; margin: 0; padding: 0; text-align: {text_align}; word-wrap: break-word; overflow-wrap: break-word; hyphens: auto; }}
-#             """
-            
-#             # --- THE CENTER OF MASS LOGIC ---
-#             # Find where the majority of the text actually lives
-#             if block.get("spans"):
-#                 avg_x = sum([(s[0] + s[2])/2 for s in block["spans"]]) / len(block["spans"])
-#                 avg_y = sum([(s[1] + s[3])/2 for s in block["spans"]]) / len(block["spans"])
-#             else:
-#                 avg_x = (orig_rect.x0 + orig_rect.x1) / 2
-#                 avg_y = (orig_rect.y0 + orig_rect.y1) / 2
-
-#             # Find the physical walls enclosing this center point
-#             left_walls = [x for x in v_lines if x < avg_x]
-#             right_walls = [x for x in v_lines if x > avg_x]
-#             bottom_walls = [y for y in h_lines if y > avg_y]
-            
-#             left_wall = max(left_walls) if left_walls else 0
-#             right_wall = min(right_walls) if right_walls else page.rect.width
-#             bottom_wall = min(bottom_walls) if bottom_walls else page.rect.height
-            
-#             # --- APPLY THE ABSOLUTE CAGE ---
-#             # 1. Lock the Left Wall (Fixes bleeding into Column 1)
-#             if left_wall > 10: # If it's an actual table line
-#                 rect.x0 = max(orig_rect.x0, left_wall + 2)
-            
-#             # 2. Lock the Right Wall (Fixes bleeding into Column 3)
-#             if right_wall < page.rect.width - 10: # If it's an actual table line
-#                 rect.x1 = right_wall - 2
-#             else:
-#                 rect.x1 = orig_rect.x1 + 30 # Normal paragraph expansion
-                
-#             # 3. Lock the Bottom Wall (Prevents bleeding into the next row)
-#             if bottom_wall < page.rect.height - 10:
-#                 rect.y1 = bottom_wall - 2
-#             else:
-#                 rect.y1 = orig_rect.y1 + 40 # Normal paragraph expansion
-            
-#             # Failsafe: Ensure box has minimum size
-#             if rect.x1 <= rect.x0 + 10: rect.x1 = rect.x0 + 50
-#             if rect.y1 <= rect.y0 + 10: rect.y1 = rect.y0 + 20
-            
-#             page.insert_htmlbox(rect, f"<div>{safe_text}</div>", css=css, archive=archive)
-            
-#     doc.save(output_path)
-#     doc.close()
-#     return output_path
-
-# version 2
-# import fitz  # PyMuPDF
-# import base64
-# from weasyprint import HTML, CSS
-# from weasyprint.text.fonts import FontConfiguration
-
 # def pdf_to_base64_images(pdf_path):
-#     """Converts each page of a PDF into a high-res base64 image for the Vision Model."""
 #     doc = fitz.open(pdf_path)
 #     base64_images = []
-    
 #     for page in doc:
-#         # Render page to an image (dpi=200 for good vision quality)
-#         pix = page.get_pixmap(dpi=200)
+#         # 1. IMPACTFUL CHANGE: Raised DPI to 250 for massive OCR accuracy improvement
+#         pix = page.get_pixmap(dpi=250)
 #         img_bytes = pix.tobytes("png")
 #         b64_img = base64.b64encode(img_bytes).decode('utf-8')
 #         base64_images.append(b64_img)
-        
 #     doc.close()
 #     return base64_images
 
-# def html_to_pdf(html_pages, output_path):
-#     """Combines HTML strings into a single PDF using WeasyPrint."""
+# def html_to_pdf(html_pages, output_path, target_lang):
+#     font_info = FONT_MAP.get(target_lang, FONT_MAP["English"])
+#     base_dir = os.path.abspath(os.path.dirname(__file__))
+#     reg_font_path = os.path.join(base_dir, "fonts", font_info["regular"]).replace('\\', '/')
+#     bold_font_path = os.path.join(base_dir, "fonts", font_info["bold"]).replace('\\', '/')
     
-#     # Combine all pages with CSS page-breaks
-#     combined_html = """
+#     combined_html = f"""
 #     <!DOCTYPE html>
 #     <html>
 #     <head>
 #         <meta charset="UTF-8">
 #         <style>
-#             @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+Devanagari:wght@400;700&family=Noto+Sans+Telugu:wght@400;700&family=Noto+Sans+Malayalam:wght@400;700&display=swap');
+#             @font-face {{ font-family: 'TargetFont'; src: url('file:///{reg_font_path}'); font-weight: normal; }}
+#             @font-face {{ font-family: 'TargetFont'; src: url('file:///{bold_font_path}'); font-weight: bold; }}
             
-#             body {
-#                 font-family: 'Noto Sans', 'Noto Sans Devanagari', 'Noto Sans Telugu', 'Noto Sans Malayalam', sans-serif;
-#                 margin: 0;
-#                 padding: 20px;
-#             }
-#             .page-break {
-#                 page-break-before: always;
-#             }
-#             /* Reset table borders for clean rendering */
-#             table { border-collapse: collapse; width: 100%; }
-#             td, th { border: 1px solid black; padding: 8px; }
+#             @page {{ size: A4; margin: 0.75in; }}
+#             body {{ font-family: 'TargetFont', sans-serif; font-size: 10.5pt; line-height: 1.5; color: #000; margin: 0; padding: 0; }}
+            
+#             table {{ border-collapse: collapse; width: 100% !important; margin-bottom: 15px; table-layout: fixed !important; }}
+#             tr {{ page-break-inside: avoid !important; }}
+#             td, th {{ padding: 8px; vertical-align: top; text-align: left; word-wrap: break-word; overflow-wrap: break-word; }}
+#             table.grid-table, table.grid-table td, table.grid-table th {{ border: 1px solid black; }}
+            
+#             .form-blank {{ display: inline-block; min-width: 150px; border-bottom: 1px solid black; margin: 0 5px; vertical-align: bottom; }}
+#             .form-blank::after {{ content: "\\00A0"; }}
+            
+#             table.signature-table {{ border: none !important; margin-top: 30px; }}
+#             table.signature-table td {{ border: none !important; text-align: center; vertical-align: bottom; }}
+#             .sig-line {{ border-bottom: 1px solid black; width: 80%; margin: 0 auto 5px auto; min-height: 20px; }}
+            
+#             .page-container {{ page-break-after: always; width: 100%; }}
+#             .last-page {{ width: 100%; }} /* No page break */
+            
+#             .fallback-img {{ max-width: 100%; height: auto; border: 2px dashed red; }}
 #         </style>
 #     </head>
 #     <body>
 #     """
     
+#     # 2. IMPACTFUL CHANGE: Skip page-break on the last page
 #     for i, page_html in enumerate(html_pages):
-#         if i > 0:
-#             combined_html += "<div class='page-break'></div>"
-#         combined_html += page_html
+#         if i == len(html_pages) - 1:
+#             combined_html += f"<div class='last-page'>{page_html}</div>"
+#         else:
+#             combined_html += f"<div class='page-container'>{page_html}</div>"
         
 #     combined_html += "</body></html>"
     
-#     # Render PDF
 #     font_config = FontConfiguration()
 #     HTML(string=combined_html).write_pdf(output_path, font_config=font_config)
     
 #     return output_path
-# 
+
+
+
+###################### Claudes improved code ###################################
+
+
+
+# """
+# pdf_utils.py  —  Utility helpers for the PDF translation pipeline.
+
+# Improvements over v1:
+#   • DPI raised 150 → 250 for sharper complex-script glyphs (Telugu, Kannada …)
+#   • pdf_to_base64_images  now also returns pdfplumber word-level text per page
+#     (dual-channel:  image  for layout,  text  for word accuracy)
+#   • html_to_pdf  no longer adds page-break-after on the LAST page  →  no trailing blank
+#   • html_to_pdf  runs a BeautifulSoup repair pass before rendering  →  safe from broken AI HTML
+#   • Unicode checkbox post-processing:  [ ]→☐   [X]→☑
+#   • Added img CSS guard  (display:block; max-width:100%)
+#   • Font size reduced 10.5pt → 10pt body, 9pt inside table cells
+#   • PDF metadata (Title, Language) injected via <meta> tags
+#   • box-sizing: border-box on everything prevents edge bleed
+# """
+
+# import base64
+# import os
+# import re
+
+# import fitz  # PyMuPDF
+# import pdfplumber
+# from bs4 import BeautifulSoup
+# from weasyprint import HTML
+# from weasyprint.text.fonts import FontConfiguration
+
+# # ---------------------------------------------------------------------------
+# # Font map
+# # ---------------------------------------------------------------------------
+# FONT_MAP = {
+#     "English":   {"regular": "NotoSans-Regular.ttf",            "bold": "NotoSans-Bold.ttf"},
+#     "Hindi":     {"regular": "NotoSansDevanagari-Regular.ttf",  "bold": "NotoSansDevanagari-Bold.ttf"},
+#     "Telugu":    {"regular": "NotoSansTelugu-Regular.ttf",      "bold": "NotoSansTelugu-Bold.ttf"},
+#     "Tamil":     {"regular": "NotoSansTamil-Regular.ttf",       "bold": "NotoSansTamil-Bold.ttf"},
+#     "Kannada":   {"regular": "NotoSansKannada-Regular.ttf",     "bold": "NotoSansKannada-Bold.ttf"},
+#     "Malayalam": {"regular": "NotoSansMalayalam-Regular.ttf",   "bold": "NotoSansMalayalam-Bold.ttf"},
+#     "Bengali":   {"regular": "NotoSansBengali-Regular.ttf",     "bold": "NotoSansBengali-Bold.ttf"},
+#     "Gujarati":  {"regular": "NotoSansGujarati-Regular.ttf",    "bold": "NotoSansGujarati-Bold.ttf"},
+# }
+
+# # ---------------------------------------------------------------------------
+# # Extraction  —  dual-channel: base64 images  +  pdfplumber word text
+# # ---------------------------------------------------------------------------
+
+# def pdf_to_base64_images(pdf_path: str, dpi: int = 250):
+#     """
+#     Rasterise every page at *dpi* and also extract structured word-level text
+#     via pdfplumber for the dual-channel prompt.
+
+#     Returns
+#     -------
+#     images : list[str]
+#         Base-64 encoded PNG strings, one per page.
+#     page_texts : list[str]
+#         Plain-text extraction per page  (empty string if extraction fails).
+#         Each word is separated by a space; lines by newline.
+#     """
+#     # --- rasterise with PyMuPDF at higher DPI ---
+#     doc = fitz.open(pdf_path)
+#     images: list[str] = []
+#     for page in doc:
+#         pix = page.get_pixmap(dpi=dpi)
+#         img_bytes = pix.tobytes("png")
+#         images.append(base64.b64encode(img_bytes).decode("utf-8"))
+#     doc.close()
+
+#     # --- word-level text extraction with pdfplumber ---
+#     page_texts: list[str] = []
+#     try:
+#         with pdfplumber.open(pdf_path) as plumb:
+#             for page in plumb.pages:
+#                 words = page.extract_words(
+#                     x_tolerance=3,
+#                     y_tolerance=3,
+#                     keep_blank_chars=False,
+#                     use_text_flow=True,
+#                 )
+#                 if words:
+#                     # Reconstruct reading-order lines by grouping close y values
+#                     lines: dict[int, list[str]] = {}
+#                     for w in words:
+#                         y_key = round(w["top"] / 5) * 5        # bucket to 5-pt rows
+#                         lines.setdefault(y_key, []).append(w["text"])
+#                     text = "\n".join(
+#                         " ".join(line_words)
+#                         for _, line_words in sorted(lines.items())
+#                     )
+#                 else:
+#                     text = ""
+#                 page_texts.append(text)
+#     except Exception as exc:
+#         print(f"[WARNING] pdfplumber extraction failed: {exc}")
+#         page_texts = [""] * len(images)
+
+#     return images, page_texts
+
+
+# # ---------------------------------------------------------------------------
+# # Post-processing helpers
+# # ---------------------------------------------------------------------------
+
+# def _fix_underscores(html: str) -> str:
+#     """
+#     Replace 3+ consecutive underscores with a CSS blank-line span.
+#     Guard: only fire if real underscores are present (not inside attribute
+#     values like  style="text-decoration:underline").
+#     """
+#     if re.search(r'(?<!["\'])_{3,}(?!["\'])', html):
+#         html = re.sub(r'_{3,}', '<span class="blank-line"></span>', html)
+#     return html
+
+
+# def _fix_checkboxes(html: str) -> str:
+#     """Replace ASCII checkbox notation with proper Unicode glyphs."""
+#     html = re.sub(r'\[X\]', '☑', html, flags=re.IGNORECASE)
+#     html = re.sub(r'\[ \]', '☐', html)
+#     return html
+
+
+# def _repair_html(html: str) -> str:
+#     """
+#     Run a BeautifulSoup parse-and-repair pass so that unclosed or malformed
+#     tags from the AI don't corrupt WeasyPrint's layout.
+#     """
+#     try:
+#         soup = BeautifulSoup(html, "html.parser")
+#         return str(soup)
+#     except Exception as exc:
+#         print(f"[WARNING] HTML repair failed, using raw output: {exc}")
+#         return html
+
+
+# def postprocess_page_html(raw_html: str) -> str:
+#     """Apply all post-processing steps to a single translated page."""
+#     html = raw_html.replace("```html", "").replace("```", "").strip()
+#     html = _fix_underscores(html)
+#     html = _fix_checkboxes(html)
+#     html = _repair_html(html)
+#     return html
+
+
+# # ---------------------------------------------------------------------------
+# # Rendering  —  html_to_pdf
+# # ---------------------------------------------------------------------------
+
+# def html_to_pdf(
+#     html_pages: list[str],
+#     output_path: str,
+#     target_lang: str,
+#     study_title: str = "Informed Consent Document",
+# ):
+#     """
+#     Combine translated HTML pages into a single A4 PDF.
+
+#     Changes vs v1
+#     -------------
+#     • No page-break-after on the LAST page  →  eliminates trailing blank page.
+#     • img { display:block; max-width:100% } guard.
+#     • Font size 10.5pt → 10pt body; 9pt inside table cells.
+#     • PDF metadata injected via <meta> tags.
+#     • box-sizing: border-box on all elements.
+#     """
+#     font_info = FONT_MAP.get(target_lang, FONT_MAP["English"])
+#     base_dir  = os.path.abspath(os.path.dirname(__file__))
+#     reg_font  = os.path.join(base_dir, "fonts", font_info["regular"]).replace("\\", "/")
+#     bold_font = os.path.join(base_dir, "fonts", font_info["bold"]).replace("\\", "/")
+
+#     # Language code for <html lang="…"> (best-effort map)
+#     lang_code_map = {
+#         "Hindi": "hi", "Telugu": "te", "Tamil": "ta", "Kannada": "kn",
+#         "Malayalam": "ml", "Bengali": "bn", "Gujarati": "gu", "English": "en",
+#     }
+#     lang_code = lang_code_map.get(target_lang, "en")
+
+#     css = f"""
+#         @font-face {{
+#             font-family: 'TargetFont';
+#             src: url('file:///{reg_font}');
+#             font-weight: normal;
+#         }}
+#         @font-face {{
+#             font-family: 'TargetFont';
+#             src: url('file:///{bold_font}');
+#             font-weight: bold;
+#         }}
+
+#         /* --- Box model -------------------------------------------------- */
+#         *, *::before, *::after {{
+#             box-sizing: border-box;
+#         }}
+
+#         /* --- Page setup -------------------------------------------------- */
+#         @page {{
+#             size: A4;
+#             margin: 0.75in;
+#         }}
+
+#         /* --- Body -------------------------------------------------------- */
+#         body {{
+#             font-family: 'TargetFont', sans-serif;
+#             font-size: 10pt;          /* was 10.5pt — denser scripts need room */
+#             line-height: 1.5;
+#             color: #000;
+#             margin: 0;
+#             padding: 0;
+#             max-width: 100%;
+#         }}
+
+#         /* --- Prevent WeasyPrint infinite-page bug ----------------------- */
+#         html, body, .page-container, div, table, tr, td, th {{
+#             height: auto !important;
+#             max-height: none !important;
+#         }}
+
+#         /* --- Tables ------------------------------------------------------ */
+#         table {{
+#             border-collapse: collapse;
+#             width: 100% !important;
+#             margin-bottom: 12px;
+#             table-layout: auto !important;
+#         }}
+
+#         td, th {{
+#             padding: 6px 8px;
+#             font-size: 9pt;           /* tighter in cells to avoid overflow */
+#             vertical-align: top;
+#             text-align: left;
+#             word-wrap: break-word;
+#             overflow-wrap: break-word;
+#         }}
+
+#         table.grid-table,
+#         table.grid-table td,
+#         table.grid-table th {{
+#             border: 1px solid #000;
+#         }}
+
+#         table.borderless,
+#         table.borderless td,
+#         table.borderless th {{
+#             border: none !important;
+#         }}
+
+#         /* --- Page containers --------------------------------------------- */
+#         /* NOTE: page-break-after is added inline per page;
+#                  the LAST page gets none to avoid trailing blank. */
+#         .page-container {{
+#             width: 100%;
+#         }}
+
+#         /* --- Blank form-field line --------------------------------------- */
+#         .blank-line {{
+#             display: inline-block;
+#             min-width: 120px;
+#             border-bottom: 1px solid #000;
+#             margin: 0 4px;
+#         }}
+#         .blank-line::after {{
+#             content: "\\00A0";
+#         }}
+
+#         /* --- Images ------------------------------------------------------ */
+#         img {{
+#             display: block;
+#             max-width: 100%;
+#             height: auto;
+#         }}
+
+#         /* --- Fallback page (translation blocked) ------------------------- */
+#         .fallback-banner {{
+#             color: red;
+#             border: 2px solid red;
+#             padding: 12px 15px;
+#             margin-bottom: 16px;
+#             font-weight: bold;
+#         }}
+#     """
+
+#     # Build the full HTML document
+#     pages_html = ""
+#     last_idx = len(html_pages) - 1
+#     for i, page_html in enumerate(html_pages):
+#         # Only add page-break BEFORE the last page, not after it
+#         break_style = "page-break-after: always;" if i < last_idx else ""
+#         pages_html += f"<div class='page-container' style='{break_style}'>{page_html}</div>\n"
+
+#     combined_html = f"""<!DOCTYPE html>
+# <html lang="{lang_code}">
+# <head>
+#     <meta charset="UTF-8">
+#     <meta name="Title" content="{study_title} — {target_lang}">
+#     <meta name="Language" content="{lang_code}">
+#     <meta name="Author" content="Auto-translated by PDF Translation Pipeline">
+#     <style>{css}</style>
+# </head>
+# <body>
+# {pages_html}
+# </body>
+# </html>"""
+
+#     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+#     font_config = FontConfiguration()
+#     HTML(string=combined_html).write_pdf(output_path, font_config=font_config)
+#     return output_path
+
+
+import base64
+import os
+import re
 
 import fitz  # PyMuPDF
-import base64
-from weasyprint import HTML, CSS
+import pdfplumber
+from bs4 import BeautifulSoup
+from weasyprint import HTML
 from weasyprint.text.fonts import FontConfiguration
 
-def pdf_to_base64_images(pdf_path):
-    """Converts each page of a PDF into a high-res base64 image for the Vision Model."""
-    doc = fitz.open(pdf_path)
-    base64_images = []
-    
-    for page in doc:
-        pix = page.get_pixmap(dpi=200)
-        img_bytes = pix.tobytes("png")
-        b64_img = base64.b64encode(img_bytes).decode('utf-8')
-        base64_images.append(b64_img)
-        
-    doc.close()
-    return base64_images
+FONT_MAP = {
+    "English":   {"regular": "NotoSans-Regular.ttf",            "bold": "NotoSans-Bold.ttf"},
+    "Hindi":     {"regular": "NotoSansDevanagari-Regular.ttf",  "bold": "NotoSansDevanagari-Bold.ttf"},
+    "Telugu":    {"regular": "NotoSansTelugu-Regular.ttf",      "bold": "NotoSansTelugu-Bold.ttf"},
+    "Tamil":     {"regular": "NotoSansTamil-Regular.ttf",       "bold": "NotoSansTamil-Bold.ttf"},
+    "Kannada":   {"regular": "NotoSansKannada-Regular.ttf",     "bold": "NotoSansKannada-Bold.ttf"},
+    "Malayalam": {"regular": "NotoSansMalayalam-Regular.ttf",   "bold": "NotoSansMalayalam-Bold.ttf"},
+    "Bengali":   {"regular": "NotoSansBengali-Regular.ttf",     "bold": "NotoSansBengali-Bold.ttf"},
+    "Gujarati":  {"regular": "NotoSansGujarati-Regular.ttf",    "bold": "NotoSansGujarati-Bold.ttf"},
+}
 
-def html_to_pdf(html_pages, output_path):
-    """Combines HTML strings into a single PDF using WeasyPrint with strict layout rules."""
-    
-    combined_html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+Devanagari:wght@400;700&family=Noto+Sans+Telugu:wght@400;700&family=Noto+Sans+Malayalam:wght@400;700&display=swap');
-            
-            @page {
-                size: A4;
-                margin: 0.75in;
-            }
-            body {
-                font-family: 'Noto Sans', 'Noto Sans Devanagari', 'Noto Sans Telugu', 'Noto Sans Malayalam', sans-serif;
-                font-size: 10pt; /* Slightly reduced to accommodate Indian script expansion */
-                line-height: 1.4;
-                color: #000;
-                margin: 0;
-                padding: 0;
-            }
-            
-            /* DEFAULT TABLES: No borders (Used for aligning signatures and headers) */
-            table { 
-                border-collapse: collapse; 
-                width: 100%; 
-                margin-bottom: 15px;
-                table-layout: fixed; 
-                word-wrap: break-word;
-                overflow-wrap: break-word;
-            }
-            td, th { 
-                padding: 6px; 
-                vertical-align: top;
-                text-align: left;
-            }
-            
-            /* GRID TABLES: Visible black borders (Used for actual data tables) */
-            table.grid-table, table.grid-table td, table.grid-table th {
-                border: 1px solid black;
-            }
-            
-            .page-container {
-                page-break-after: always;
-            }
-        </style>
-    </head>
-    <body>
+def pdf_to_base64_images(pdf_path: str, dpi: int = 250):
+    doc = fitz.open(pdf_path)
+    images: list[str] = []
+    for page in doc:
+        pix = page.get_pixmap(dpi=dpi)
+        img_bytes = pix.tobytes("png")
+        images.append(base64.b64encode(img_bytes).decode("utf-8"))
+    doc.close()
+
+    page_texts: list[str] = []
+    try:
+        with pdfplumber.open(pdf_path) as plumb:
+            for page in plumb.pages:
+                words = page.extract_words(
+                    x_tolerance=3,
+                    y_tolerance=3,
+                    keep_blank_chars=False,
+                    use_text_flow=True,
+                )
+                if words:
+                    lines: dict[int, list[str]] = {}
+                    for w in words:
+                        y_key = round(w["top"] / 5) * 5
+                        lines.setdefault(y_key, []).append(w["text"])
+                    text = "\n".join(" ".join(line_words) for _, line_words in sorted(lines.items()))
+                else:
+                    text = ""
+                page_texts.append(text)
+    except Exception as exc:
+        print(f"[WARNING] pdfplumber extraction failed: {exc}")
+        page_texts = [""] * len(images)
+
+    return images, page_texts
+
+def _fix_underscores(html: str) -> str:
+    if re.search(r'(?<!["\'])_{3,}(?!["\'])', html):
+        html = re.sub(r'_{3,}', '<span class="blank-line"></span>', html)
+    return html
+
+def _fix_checkboxes(html: str) -> str:
+    html = re.sub(r'\[X\]', '☑', html, flags=re.IGNORECASE)
+    html = re.sub(r'\[ \]', '☐', html)
+    return html
+
+def _repair_html(html: str) -> str:
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        return str(soup)
+    except Exception as exc:
+        print(f"[WARNING] HTML repair failed, using raw output: {exc}")
+        return html
+
+def postprocess_page_html(raw_html: str) -> str:
+    html = raw_html.replace("```html", "").replace("```", "").strip()
+    html = _fix_underscores(html)
+    html = _fix_checkboxes(html)
+    html = _repair_html(html)
+    return html
+
+def html_to_pdf(html_pages: list[str], output_path: str, target_lang: str, study_title: str = "Informed Consent Document"):
+    font_info = FONT_MAP.get(target_lang, FONT_MAP["English"])
+    base_dir  = os.path.abspath(os.path.dirname(__file__))
+    reg_font  = os.path.join(base_dir, "fonts", font_info["regular"]).replace("\\", "/")
+    bold_font = os.path.join(base_dir, "fonts", font_info["bold"]).replace("\\", "/")
+
+    lang_code_map = {
+        "Hindi": "hi", "Telugu": "te", "Tamil": "ta", "Kannada": "kn",
+        "Malayalam": "ml", "Bengali": "bn", "Gujarati": "gu", "English": "en",
+    }
+    lang_code = lang_code_map.get(target_lang, "en")
+
+    css = f"""
+        @font-face {{
+            font-family: 'TargetFont';
+            src: url('file:///{reg_font}');
+            font-weight: normal;
+        }}
+        @font-face {{
+            font-family: 'TargetFont';
+            src: url('file:///{bold_font}');
+            font-weight: bold;
+        }}
+
+        *, *::before, *::after {{
+            box-sizing: border-box;
+        }}
+
+        @page {{
+            size: A4;
+            margin: 0.75in;
+        }}
+
+        body {{
+            font-family: 'TargetFont', sans-serif;
+            font-size: 10pt;
+            line-height: 1.5;
+            color: #000;
+            margin: 0;
+            padding: 0;
+            max-width: 100%;
+        }}
+
+        html, body, .page-container, div, table, tr, td, th {{
+            height: auto !important;
+            max-height: none !important;
+        }}
+
+        table {{
+            border-collapse: collapse;
+            width: 100% !important;
+            margin-bottom: 12px;
+            table-layout: auto !important;
+        }}
+
+        td, th {{
+            padding: 6px 8px;
+            font-size: 9pt;
+            vertical-align: top;
+            text-align: left;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }}
+
+        table.grid-table, table.grid-table td, table.grid-table th {{
+            border: 1px solid #000;
+        }}
+
+        table.borderless, table.borderless td, table.borderless th {{
+            border: none !important;
+        }}
+
+        .page-container {{
+            width: 100%;
+        }}
+
+        /* --- THE BLANK LINE FIX --- */
+        .blank-line {{
+            display: inline-block;
+            min-width: 120px;
+            border-bottom: 1px solid #000;
+            margin: 0 4px;
+            vertical-align: bottom; /* Forces the line to sit flush with the text baseline */
+        }}
+        .blank-line::after {{
+            content: "\\00A0";
+        }}
+
+        img {{
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }}
+
+        .fallback-banner {{
+            color: red;
+            border: 2px solid red;
+            padding: 12px 15px;
+            margin-bottom: 16px;
+            font-weight: bold;
+        }}
     """
-    
-    for page_html in html_pages:
-        combined_html += f"<div class='page-container'>{page_html}</div>"
-        
-    combined_html += "</body></html>"
-    
+
+    pages_html = ""
+    last_idx = len(html_pages) - 1
+    for i, page_html in enumerate(html_pages):
+        break_style = "page-break-after: always;" if i < last_idx else ""
+        pages_html += f"<div class='page-container' style='{break_style}'>{page_html}</div>\n"
+
+    combined_html = f"""<!DOCTYPE html>
+<html lang="{lang_code}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="Title" content="{study_title} — {target_lang}">
+    <meta name="Language" content="{lang_code}">
+    <style>{css}</style>
+</head>
+<body>
+{pages_html}
+</body>
+</html>"""
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     font_config = FontConfiguration()
     HTML(string=combined_html).write_pdf(output_path, font_config=font_config)
-    
     return output_path
