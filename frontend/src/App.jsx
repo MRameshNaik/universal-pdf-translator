@@ -44,7 +44,9 @@ function App() {
     let postSent = false;
     
     // 1. Open SSE Connection FIRST
-    const eventSource = new EventSource(`http://localhost:5000/stream-logs/${clientId}`);
+    // const eventSource = new EventSource(`http://localhost:5000/stream-logs/${clientId}`);
+    const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+    const eventSource = new EventSource(`${API_BASE_URL}/stream-logs/${clientId}`);
     
     // Wait for the connection to open BEFORE sending the heavy PDF
     eventSource.onopen = async () => {
@@ -57,7 +59,8 @@ function App() {
       formData.append('client_id', clientId);
 
       try {
-        const response = await axios.post('http://localhost:5000/translate', formData, {
+        // const response = await axios.post('http://localhost:5000/translate', formData, {
+        const response = await axios.post(`${API_BASE_URL}/translate`, formData, {
           responseType: 'blob', 
         });
 
