@@ -537,7 +537,7 @@ from logger import send_log
 import fitz 
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash", 
+    model="gemini-2.5-flash", 
     temperature=0.1,
     safety_settings={
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
@@ -558,7 +558,14 @@ class PDFState(TypedDict):
 def extract_images_node(state: PDFState) -> dict:
     cid = state.get("client_id")
     send_log(cid, "[INFO] Extracting page images and word-level text...")
-    images, page_texts = pdf_to_base64_images(state["pdf_path"])
+    
+    # THE FIX: Extract images and text separately so Python doesn't crash!
+    images = pdf_to_base64_images(state["pdf_path"])
+    
+    doc = fitz.open(state["pdf_path"])
+    page_texts = [page.get_text("text") for page in doc]
+    doc.close()
+    
     send_log(cid, f"[INFO] Extracted {len(images)} pages.")
     return {"page_images": images, "page_texts": page_texts}
 
