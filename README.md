@@ -13,7 +13,7 @@ Specially optimized for complex Indian scripts (Hindi, Telugu, Tamil, Malayalam,
 Traditional PDF translators fail because PDFs are not text documents; they are canvases of absolute coordinates. When translating English into Indian languages, the text expands by 30-50%, causing translated words to bleed out of boxes, overlap, and destroy table structures. Furthermore, complex Indian ligatures (matras/ottus) often fail to render, resulting in the dreaded "Tofu" (blank box) bug.
 
 **This project solves PDF translation by treating it as a Frontend Development task.** 
-Using **Gemini 1.5 Flash (Vision)** orchestrated by **LangGraph**, the AI "looks" at the document, translates the text contextually, and writes pure HTML5/CSS to rebuild the document from scratch. Finally, a HarfBuzz-enabled rendering engine (`WeasyPrint`) converts the HTML back into a pristine PDF.
+Using **Gemini 2.5 Flash (Vision)** orchestrated by **LangGraph**, the AI "looks" at the document, translates the text contextually, and writes pure HTML5/CSS to rebuild the document from scratch. Finally, a HarfBuzz-enabled rendering engine (`WeasyPrint`) converts the HTML back into a pristine PDF.
 
 ---
 
