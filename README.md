@@ -31,7 +31,7 @@ Using **Gemini 2.5 Flash (Vision)** orchestrated by **LangGraph**, the AI "looks
 ## 🏗️ System Architecture
 
 1. **The Eye (`PyMuPDF` & `pdfplumber`):** Converts uploaded PDFs into 150 DPI Base64 images and extracts raw text.
-2. **The Brain (`LangGraph` & `Gemini 1.5 Flash`):** An Agentic workflow processes pages in parallel. Using strict XML-tagged prompts, the AI translates the text and generates structural HTML5.
+2. **The Brain (`LangGraph` & `Gemini 2.5 Flash`):** An Agentic workflow processes pages in parallel. Using strict XML-tagged prompts, the AI translates the text and generates structural HTML5.
 3. **The Sanitizer (`BeautifulSoup4` & `Regex`):** Cleans the AI's output, auto-closes broken HTML tags, and injects strict CSS components.
 4. **The Builder (`WeasyPrint`):** Renders the sanitized HTML back into a downloadable PDF using embedded Unicode fonts.
 
@@ -39,7 +39,7 @@ Using **Gemini 2.5 Flash (Vision)** orchestrated by **LangGraph**, the AI "looks
 
 ## 💻 Tech Stack
 
-*   **AI & Orchestration:** LangChain, LangGraph, Google Gemini 1.5 Flash (Multimodal)
+*   **AI & Orchestration:** LangChain, LangGraph, Google Gemini 2.5 Flash (Multimodal)
 *   **Backend:** Python 3.11, Flask, Gunicorn, PyMuPDF, WeasyPrint, BeautifulSoup4
 *   **Frontend:** React, Vite, Tailwind CSS, Server-Sent Events (SSE)
 *   **Infrastructure:** Docker, Docker Compose
