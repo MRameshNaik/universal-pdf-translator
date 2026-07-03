@@ -596,22 +596,25 @@ def vision_translation_node(state: PDFState) -> dict:
             </RAW_TEXT_REFERENCE>
             
             <CRITICAL_INSTRUCTIONS>
-            1. THE BLANK LINE RULE (CRITICAL): The RAW_TEXT_REFERENCE above strips out blank lines. You MUST look at the IMAGE. Wherever you see a physical line meant for handwriting (e.g., "Date: ______"), you MUST type underscores `_________` in your HTML. Do NOT skip them.
+            1. THE [BLANK] TOKEN (CRITICAL): Wherever you see a physical line meant for handwriting (e.g., "Date: ______"), you MUST insert the exact text token `[BLANK]`. DO NOT type underscores. DO NOT skip them.
             
-            2. THE SIGNATURE TABLE RULE (CRITICAL): For side-by-side signature blocks (Name, Signature, Date) at the bottom of pages, you are FORBIDDEN from using normal paragraphs. You MUST use this exact HTML:
+            2. THE SIGNATURE TABLE RULE (CRITICAL): For side-by-side signature blocks (Name, Signature, Date), you MUST use this exact HTML:
                <table class="signature-table">
                  <tr>
-                   <td>_________<br>Name</td>
-                   <td>_________<br>Signature</td>
-                   <td>_________<br>Date</td>
+                   <td>[BLANK]<br>Name</td>
+                   <td>[BLANK]<br>Signature</td>
+                   <td>[BLANK]<br>Date</td>
                  </tr>
                </table>
                
             3. TABLE COLUMNS: Keep the exact same number of columns as the image. If a column is empty, output `<td></td>`. Use `<table class="grid-table">` for visible grids.
             
-            4. GRAMMAR: If a sentence is broken by blanks (e.g., "Address ____ of ____ subject"), combine it into ONE fluent sentence in {lang} and place the blank line at the end.
+            4. GRAMMAR & FRAGMENTED SENTENCES: If a sentence is visually broken by blank spaces in the image (e.g., "Address [BLANK] of [BLANK] the [BLANK] subject"), DO NOT translate word-by-word. Combine it into ONE fluent, grammatically correct sentence in {lang} and place a single [BLANK] at the end. (Example: "Subject Address: [BLANK]").
             
-            5. GLOSSARY: "Subject" MUST be translated as "Participant/Patient". "Initial" = "Signature/Sign". Do not translate emails or numbers.
+            5. GLOSSARY (CRITICAL): 
+               - "Subject" MUST be translated INTO {lang} as the equivalent concept of "Participant/Patient" (e.g., "పాల్గొనేవారు/రోగి" in Telugu). DO NOT output the English words "Participant/Patient".
+               - "Initial" = "Signature/Sign" in {lang}.
+               - Do not translate emails or numbers.
             </CRITICAL_INSTRUCTIONS>
             
             OUTPUT FORMAT: Return ONLY valid HTML code. No markdown fences. Inner content only.
@@ -630,16 +633,19 @@ def vision_translation_node(state: PDFState) -> dict:
                     response = llm.invoke([message])
                     clean_html = response.content.replace("```html", "").replace("```", "").strip()
                     
-                    # THE FAILSAFE: Catch silent blank page hallucinations
-                    if len(clean_html) < 200:
-                        raise ValueError("AI generated an empty or severely truncated page.")
+                    # THE TOKEN SWAP: Replaces AI tokens with perfect CSS lines
+                    clean_html = clean_html.replace("[BLANK]", '<span class="form-blank"></span>')
                     
-                    # Convert AI underscores to perfect CSS lines
+                    # Fallback Regex: Just in case it still types underscores
                     clean_html = re.sub(r'([_—\-]\s*){3,}', '<span class="form-blank"></span>', clean_html)
                     
                     # Repair broken HTML tags
                     soup = BeautifulSoup(clean_html, "html.parser")
                     repaired_html = str(soup)
+                    
+                    # Failsafe: Catch silent blank page hallucinations
+                    if len(repaired_html) < 200:
+                        raise ValueError("AI generated an empty or severely truncated page.")
                     
                     send_log(cid, f"  -> [SUCCESS] Page {page_num + 1} translated.")
                     return page_num, repaired_html

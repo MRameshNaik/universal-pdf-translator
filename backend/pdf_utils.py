@@ -541,7 +541,7 @@ def pdf_to_base64_images(pdf_path):
     doc = fitz.open(pdf_path)
     base64_images = []
     for page in doc:
-        # 150 DPI is optimal for Cloud RAM limits
+        # 150 DPI is optimal for Cloud RAM limits while maintaining OCR accuracy
         pix = page.get_pixmap(dpi=150)
         img_bytes = pix.tobytes("png")
         b64_img = base64.b64encode(img_bytes).decode('utf-8')
