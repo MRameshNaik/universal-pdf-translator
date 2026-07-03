@@ -581,46 +581,37 @@ def vision_translation_node(state: PDFState) -> dict:
 
         def _task(args):
             page_num, b64_img, raw_text = args
+            print(f"  -> Processing page {page_num + 1}...")
             
-            # Clean raw text to prevent fragmented grammar
-            raw_text_clean = re.sub(r'\s+', ' ', raw_text).strip()
-            
-            # THE HTML-NATIVE PROMPT
-            prompt = f"""
-            <ROLE>You are an Expert Frontend Developer and Medical/Legal Translator.</ROLE>
-            <TASK>Recreate the visual layout of the provided document image using HTML5, and translate ALL text into {lang}.</TASK>
-            
-            <RAW_TEXT_REFERENCE>
-            Use this text ONLY for translation spelling accuracy. 
-            {raw_text_clean}
-            </RAW_TEXT_REFERENCE>
-            
-            <CRITICAL_INSTRUCTIONS>
-            1. FORM BLANKS (CRITICAL): Wherever you see a physical line meant for handwriting (e.g., "Date: ______"), you MUST insert this exact HTML tag: `<span class="form-blank"></span>`. DO NOT type underscores.
-            
-            2. CHECKBOXES (CRITICAL): Wherever you see an empty checkbox `[ ]` in the image, you MUST insert this exact HTML tag: `<span class="checkbox"></span>`.
-            
-            3. SIGNATURE TABLES: For side-by-side signature blocks (Name, Signature, Date), you MUST use this exact HTML:
-               <table class="signature-table">
-                 <tr>
-                   <td><span class="form-blank"></span><br>Name</td>
-                   <td><span class="form-blank"></span><br>Signature</td>
-                   <td><span class="form-blank"></span><br>Date</td>
-                 </tr>
-               </table>
-               
-            4. TABLE COLUMNS: Keep the exact same number of columns as the image. If a column is empty, output `<td></td>`. Use `<table class="grid-table">` for visible grids.
-            
-            5. GRAMMAR: If a sentence is visually broken by blank spaces in the image (e.g., "Address ____ of ____ subject"), combine it into ONE fluent sentence in {lang} and place the blank line at the end. (Example: "Subject Address: <span class="form-blank"></span>").
-            
-            6. GLOSSARY: 
-               - "Subject" MUST be translated INTO {lang} as the equivalent concept of "Participant/Patient". DO NOT output the English words.
-               - "Initial" = "Signature/Sign" in {lang}.
-               - Do not translate emails or numbers.
-            </CRITICAL_INSTRUCTIONS>
-            
-            OUTPUT FORMAT: Return ONLY valid HTML code. No markdown fences. Inner content only.
-            """
+            # THE SIMPLIFIED, NATURAL PROMPT
+            prompt = f"""You are an Expert Frontend Developer and Medical/Legal Translator.
+Recreate the visual layout of the provided document image using HTML5, and translate ALL text into {lang}.
+
+RAW TEXT (Use this for spelling accuracy, but rely on the IMAGE for layout):
+{raw_text}
+
+CRITICAL RULES:
+1. TRANSLATE EVERYTHING: Translate the text into {lang}. Do not leave English words unless they are emails, URLs, or numbers.
+2. BLANK LINES: Use underscores (e.g., `_________`) for blank lines. Do NOT use HTML spans for blanks.
+3. SIGNATURE BLOCKS: You MUST use this exact HTML structure for side-by-side signatures:
+   <table class="signature-table">
+     <tr>
+       <td>_________<br>Name</td>
+       <td>_________<br>Signature</td>
+       <td>_________<br>Date</td>
+     </tr>
+   </table>
+4. DATA TABLES: For actual tables with visible grid lines, use `<table class="grid-table">`. Keep the exact same number of columns as the image.
+5. GRAMMAR FIX: If a sentence is visually broken by blank spaces (e.g., "Address ____ of ____ the ____ subject:"), DO NOT translate word-by-word. Combine it into ONE fluent sentence in {lang} and place the blank line at the end.
+
+GLOSSARY:
+- "Subject" = Participant/Patient (Translate this concept into {lang})
+- "Initial" = Signature/Sign (Translate this concept into {lang})
+- CHECKBOXES: Use literal text `[ ]` for unchecked and `[X]` for checked.
+
+OUTPUT FORMAT:
+Return ONLY valid HTML code. Do not include markdown formatting like ```html. Do not include <html>, <head>, or <body> tags, just the inner content.
+"""
             
             message = HumanMessage(
                 content=[
@@ -635,7 +626,7 @@ def vision_translation_node(state: PDFState) -> dict:
                     response = llm.invoke([message])
                     clean_html = response.content.replace("```html", "").replace("```", "").strip()
                     
-                    # Fallback Regex: Just in case it still types underscores
+                    # PYTHON REGEX: Safely converts the AI's natural underscores into perfect CSS lines
                     clean_html = re.sub(r'([_—\-]\s*){3,}', '<span class="form-blank"></span>', clean_html)
                     
                     # Repair broken HTML tags
@@ -669,7 +660,7 @@ def vision_translation_node(state: PDFState) -> dict:
             """
             return page_num, fallback_html
 
-        # CLOUD OPTIMIZATION: max_workers=2
+        # CLOUD OPTIMIZATION: max_workers=2 to prevent Render Free Tier CPU crashing
         tasks = [(i, img, txt) for i, (img, txt) in enumerate(zip(page_images, page_texts))]
         results_unordered = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
