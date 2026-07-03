@@ -537,14 +537,14 @@ from logger import send_log
 import fitz 
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", 
+    model="gemini-2.5-flash",
     temperature=0.1,
     safety_settings={
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
         HarmCategory.HARM_CATEGORY_HATE_SPEECH:       HarmBlockThreshold.BLOCK_ONLY_HIGH,
         HarmCategory.HARM_CATEGORY_HARASSMENT:        HarmBlockThreshold.BLOCK_ONLY_HIGH,
         HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    }
+    },
 )
 
 class PDFState(TypedDict):
@@ -559,7 +559,6 @@ def extract_images_node(state: PDFState) -> dict:
     cid = state.get("client_id")
     send_log(cid, "[INFO] Extracting page images and word-level text...")
     
-    # THE FIX: Extract images and text separately so Python doesn't crash!
     images = pdf_to_base64_images(state["pdf_path"])
     
     doc = fitz.open(state["pdf_path"])
@@ -586,34 +585,36 @@ def vision_translation_node(state: PDFState) -> dict:
             # Clean raw text to prevent fragmented grammar
             raw_text_clean = re.sub(r'\s+', ' ', raw_text).strip()
             
-            prompt = f"""You are an Expert Frontend Developer and Medical/Legal Translator.
-            Recreate the visual layout of the provided document image using HTML5, and translate ALL text into {lang}.
+            # THE SOTA XML-TAGGED PROMPT
+            prompt = f"""
+            <ROLE>You are an Expert Frontend Developer and Medical/Legal Translator.</ROLE>
+            <TASK>Recreate the visual layout of the provided document image using HTML5, and translate ALL text into {lang}.</TASK>
             
-            RAW TEXT FOR ACCURACY:
+            <RAW_TEXT_REFERENCE>
+            Use this text ONLY for translation spelling accuracy. 
             {raw_text_clean}
+            </RAW_TEXT_REFERENCE>
             
-            <CRITICAL_HTML_RULES>
-            1. FORM BLANKS: Wherever you see a physical line meant for handwriting, you MUST insert `<span class="form-blank"></span>`. Do NOT type underscores.
-            2. SIGNATURE BLOCKS: You MUST use this exact HTML structure for side-by-side signatures. DO NOT forget the form-blank spans!
+            <CRITICAL_INSTRUCTIONS>
+            1. THE BLANK LINE RULE (CRITICAL): The RAW_TEXT_REFERENCE above strips out blank lines. You MUST look at the IMAGE. Wherever you see a physical line meant for handwriting (e.g., "Date: ______"), you MUST type underscores `_________` in your HTML. Do NOT skip them.
+            
+            2. THE SIGNATURE TABLE RULE (CRITICAL): For side-by-side signature blocks (Name, Signature, Date) at the bottom of pages, you are FORBIDDEN from using normal paragraphs. You MUST use this exact HTML:
                <table class="signature-table">
                  <tr>
-                   <td><span class="form-blank"></span><br>Name</td>
-                   <td><span class="form-blank"></span><br>Signature</td>
-                   <td><span class="form-blank"></span><br>Date</td>
+                   <td>_________<br>Name</td>
+                   <td>_________<br>Signature</td>
+                   <td>_________<br>Date</td>
                  </tr>
                </table>
-            3. TABLE COLUMN ORDER: Preserve the exact Left-to-Right order of table columns. If the 3rd column is an empty box, output an empty `<td></td>`.
-            4. MULTI-PAGE TABLES: If a table continues from a previous page, DO NOT invent headers. Keep the exact same number of columns.
-            </CRITICAL_HTML_RULES>
+               
+            3. TABLE COLUMNS: Keep the exact same number of columns as the image. If a column is empty, output `<td></td>`. Use `<table class="grid-table">` for visible grids.
             
-            <TRANSLATION_GLOSSARY_AND_GRAMMAR>
-            - "Subject" MUST be translated as "Participant/Patient". NEVER translate it as "Topic" or "Matter".
-            - "Initial" MUST be translated as "Signature/Sign".
-            - FRAGMENTED SENTENCES: If you see "Address ____ of ____ the ____ subject:", combine it into ONE fluent sentence. EXAMPLE: "Participant Address: <span class="form-blank"></span>".
-            - DO NOT translate email addresses, URLs, or pure numbers.
-            </TRANSLATION_GLOSSARY_AND_GRAMMAR>
+            4. GRAMMAR: If a sentence is broken by blanks (e.g., "Address ____ of ____ subject"), combine it into ONE fluent sentence in {lang} and place the blank line at the end.
             
-            OUTPUT FORMAT: Return ONLY valid HTML code. No markdown fences.
+            5. GLOSSARY: "Subject" MUST be translated as "Participant/Patient". "Initial" = "Signature/Sign". Do not translate emails or numbers.
+            </CRITICAL_INSTRUCTIONS>
+            
+            OUTPUT FORMAT: Return ONLY valid HTML code. No markdown fences. Inner content only.
             """
             
             message = HumanMessage(
@@ -663,7 +664,7 @@ def vision_translation_node(state: PDFState) -> dict:
             """
             return page_num, fallback_html
 
-        # CLOUD OPTIMIZATION: Reduced max_workers to 2 to prevent Render Free Tier CPU crashing
+        # CLOUD OPTIMIZATION: max_workers=2 to prevent Render Free Tier CPU crashing
         tasks = [(i, img, txt) for i, (img, txt) in enumerate(zip(page_images, page_texts))]
         results_unordered = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:

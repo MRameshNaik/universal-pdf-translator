@@ -541,7 +541,7 @@ def pdf_to_base64_images(pdf_path):
     doc = fitz.open(pdf_path)
     base64_images = []
     for page in doc:
-        # CLOUD OPTIMIZATION: 150 DPI reduces RAM usage by 60% on Render Free Tier
+        # 150 DPI is optimal for Cloud RAM limits
         pix = page.get_pixmap(dpi=150)
         img_bytes = pix.tobytes("png")
         b64_img = base64.b64encode(img_bytes).decode('utf-8')
@@ -586,6 +586,7 @@ def html_to_pdf(html_pages, output_path, target_lang):
                 padding: 0;
             }}
             
+            /* --- STRICT TABLE RULES --- */
             table {{ 
                 border-collapse: collapse; 
                 width: 100% !important; 
@@ -608,19 +609,21 @@ def html_to_pdf(html_pages, output_path, target_lang):
             .form-blank {{
                 display: inline-block;
                 min-width: 150px;
+                max-width: 100%;
                 border-bottom: 1px solid black;
                 margin: 0 5px;
                 vertical-align: bottom;
             }}
             .form-blank::after {{
-                content: "\\00A0"; 
+                content: "\\00A0"; /* Ghost character forces line to render */
             }}
             
             /* --- THE SIGNATURE BLOCK COMPONENT --- */
             table.signature-table {{
                 border: none !important;
                 margin-top: 30px;
-                page-break-inside: avoid !important; /* FIX: Prevents splitting across pages */
+                width: 100% !important;
+                table-layout: fixed !important;
             }}
             table.signature-table td {{
                 border: none !important;
@@ -632,6 +635,11 @@ def html_to_pdf(html_pages, output_path, target_lang):
             .page-container {{
                 page-break-after: always;
                 width: 100%;
+            }}
+            .fallback-img {{
+                max-width: 100%;
+                height: auto;
+                border: 2px dashed red;
             }}
         </style>
     </head>
