@@ -541,7 +541,6 @@ def pdf_to_base64_images(pdf_path):
     doc = fitz.open(pdf_path)
     base64_images = []
     for page in doc:
-        # 150 DPI is optimal for Cloud RAM limits while maintaining OCR accuracy
         pix = page.get_pixmap(dpi=150)
         img_bytes = pix.tobytes("png")
         b64_img = base64.b64encode(img_bytes).decode('utf-8')
@@ -586,7 +585,6 @@ def html_to_pdf(html_pages, output_path, target_lang):
                 padding: 0;
             }}
             
-            /* --- STRICT TABLE RULES --- */
             table {{ 
                 border-collapse: collapse; 
                 width: 100% !important; 
@@ -615,7 +613,17 @@ def html_to_pdf(html_pages, output_path, target_lang):
                 vertical-align: bottom;
             }}
             .form-blank::after {{
-                content: "\\00A0"; /* Ghost character forces line to render */
+                content: "\\00A0"; 
+            }}
+            
+            /* --- THE CHECKBOX COMPONENT --- */
+            .checkbox {{
+                display: inline-block;
+                width: 12px;
+                height: 12px;
+                border: 1px solid black;
+                margin-right: 5px;
+                vertical-align: middle;
             }}
             
             /* --- THE SIGNATURE BLOCK COMPONENT --- */
