@@ -1,6 +1,6 @@
 # 🌐 Enterprise Document AI: Universal PDF Translator
 
-![Agentic Workflow](https://img.shields.io/badge/Architecture-Agentic_AI-blue) ![Gemini](https://img.shields.io/badge/Model-Gemini_1.5_Flash-orange) ![Docker](https://img.shields.io/badge/Deployment-Dockerized-blue)
+![Agentic Workflow](https://img.shields.io/badge/Architecture-Agentic_AI-blue) ![Gemini](https://img.shields.io/badge/Model-Gemini_2.5_Flash-orange) ![Docker](https://img.shields.io/badge/Deployment-Dockerized-blue)
 
 A State-of-the-Art (SOTA) Multimodal AI pipeline that translates complex PDFs (Clinical Trials, Legal Forms, Resumes, and Reports) into multiple languages while **flawlessly preserving the original visual layout**. 
 
