@@ -1,3 +1,7 @@
+
+
+
+
 # import fitz  # PyMuPDF
 # import base64
 # import os
@@ -57,13 +61,19 @@
 #             body {{
 #                 font-family: 'TargetFont', sans-serif;
 #                 font-size: 10.5pt;
-#                 line-height: 1.5;
+#                 line-height: 1.25; /* TIGHTER LINE SPACING TO MATCH ORIGINAL */
 #                 color: #000;
 #                 margin: 0;
 #                 padding: 0;
 #             }}
             
-#             /* --- STRICT TABLE RULES (BORDERS BY DEFAULT) --- */
+#             /* --- VISUAL HIERARCHY (PROPORTIONAL FONT SIZES) --- */
+#             h1 {{ font-size: 14pt !important; font-weight: bold; text-align: center; margin: 10px 0; }}
+#             h2 {{ font-size: 12pt !important; font-weight: bold; margin: 8px 0; }}
+#             h3, h4, h5, h6 {{ font-size: 11pt !important; font-weight: bold; margin: 6px 0; }}
+#             p {{ margin: 0 0 8px 0; }}
+            
+#             /* --- STRICT TABLE RULES --- */
 #             table {{ 
 #                 border-collapse: collapse; 
 #                 width: 100% !important; 
@@ -71,21 +81,26 @@
 #                 table-layout: fixed !important; 
 #             }}
 #             tr {{ page-break-inside: avoid !important; }}
-            
-#             /* THE FIX: All table cells get borders by default now! */
 #             td, th {{ 
-#                 border: 1px solid black; 
-#                 padding: 8px; 
+#                 padding: 6px; 
 #                 vertical-align: top;
 #                 text-align: left;
 #                 word-wrap: break-word;
 #                 overflow-wrap: break-word;
 #             }}
+#             table.grid-table, table.grid-table td, table.grid-table th {{
+#                 border: 1px solid black;
+#             }}
+            
+#             /* HARDCODED TABLE PROPORTIONS (Serial No | Particulars | Initial) */
+#             table.grid-table th:nth-child(1), table.grid-table td:nth-child(1) {{ width: 12% !important; text-align: center; }}
+#             table.grid-table th:nth-child(2), table.grid-table td:nth-child(2) {{ width: 70% !important; }}
+#             table.grid-table th:nth-child(3), table.grid-table td:nth-child(3) {{ width: 18% !important; }}
             
 #             /* --- THE FORM BLANK COMPONENT --- */
 #             .form-blank {{
 #                 display: inline-block;
-#                 min-width: 150px;
+#                 min-width: 120px;
 #                 max-width: 100%;
 #                 border-bottom: 1px solid black;
 #                 margin: 0 5px;
@@ -95,16 +110,15 @@
 #                 content: "\\00A0"; 
 #             }}
             
-#             /* --- THE SIGNATURE BLOCK COMPONENT (NO BORDERS) --- */
-#             table.signature-table, table.signature-table td, table.signature-table th {{
-#                 border: none !important;
-#             }}
+#             /* --- THE SIGNATURE BLOCK COMPONENT --- */
 #             table.signature-table {{
-#                 margin-top: 30px;
+#                 border: none !important;
+#                 margin-top: 20px;
 #                 width: 100% !important;
 #                 table-layout: fixed !important;
 #             }}
 #             table.signature-table td {{
+#                 border: none !important;
 #                 text-align: center;
 #                 vertical-align: bottom;
 #                 width: 33.33% !important; 
@@ -133,8 +147,6 @@
 #     HTML(string=combined_html).write_pdf(output_path, font_config=font_config)
     
 #     return output_path
-
-
 
 import fitz  # PyMuPDF
 import base64
@@ -192,22 +204,29 @@ def html_to_pdf(html_pages, output_path, target_lang):
                 margin: 0.75in;
             }}
             
+            *, *:before, *:after {{
+                box-sizing: border-box;
+            }}
+            
             body {{
                 font-family: 'TargetFont', sans-serif;
                 font-size: 10.5pt;
-                line-height: 1.25; /* TIGHTER LINE SPACING TO MATCH ORIGINAL */
+                line-height: 1.3 !important; 
                 color: #000;
                 margin: 0;
                 padding: 0;
+                max-width: 100%;
             }}
             
-            /* --- VISUAL HIERARCHY (PROPORTIONAL FONT SIZES) --- */
-            h1 {{ font-size: 14pt !important; font-weight: bold; text-align: center; margin: 10px 0; }}
-            h2 {{ font-size: 12pt !important; font-weight: bold; margin: 8px 0; }}
-            h3, h4, h5, h6 {{ font-size: 11pt !important; font-weight: bold; margin: 6px 0; }}
-            p {{ margin: 0 0 8px 0; }}
+            h1, h2, h3, h4, h5, h6 {{
+                font-size: 11.5pt !important;
+                font-weight: bold !important;
+                margin: 8px 0 4px 0 !important;
+                padding: 0 !important;
+            }}
+            p {{ margin: 0 0 6px 0 !important; }}
+            p:empty {{ display: none !important; }}
             
-            /* --- STRICT TABLE RULES --- */
             table {{ 
                 border-collapse: collapse; 
                 width: 100% !important; 
@@ -216,7 +235,7 @@ def html_to_pdf(html_pages, output_path, target_lang):
             }}
             tr {{ page-break-inside: avoid !important; }}
             td, th {{ 
-                padding: 6px; 
+                padding: 6px 8px; 
                 vertical-align: top;
                 text-align: left;
                 word-wrap: break-word;
@@ -225,11 +244,6 @@ def html_to_pdf(html_pages, output_path, target_lang):
             table.grid-table, table.grid-table td, table.grid-table th {{
                 border: 1px solid black;
             }}
-            
-            /* HARDCODED TABLE PROPORTIONS (Serial No | Particulars | Initial) */
-            table.grid-table th:nth-child(1), table.grid-table td:nth-child(1) {{ width: 12% !important; text-align: center; }}
-            table.grid-table th:nth-child(2), table.grid-table td:nth-child(2) {{ width: 70% !important; }}
-            table.grid-table th:nth-child(3), table.grid-table td:nth-child(3) {{ width: 18% !important; }}
             
             /* --- THE FORM BLANK COMPONENT --- */
             .form-blank {{
@@ -247,9 +261,10 @@ def html_to_pdf(html_pages, output_path, target_lang):
             /* --- THE SIGNATURE BLOCK COMPONENT --- */
             table.signature-table {{
                 border: none !important;
-                margin-top: 20px;
+                margin-top: 20px !important;
                 width: 100% !important;
                 table-layout: fixed !important;
+                page-break-inside: avoid !important;
             }}
             table.signature-table td {{
                 border: none !important;

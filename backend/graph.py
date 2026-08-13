@@ -1,3 +1,6 @@
+
+
+
 # import os
 # import time
 # import random
@@ -81,19 +84,22 @@
 #                  </tr>
 #                </table>
                
-#             3. THE 3-COLUMN TABLE RULE (CRITICAL): The main data table ALWAYS has exactly 3 columns. 
-#                - IF THE IMAGE HAS HEADERS ON THE CURRENT PAGE, YOU MUST TRANSLATE AND INCLUDE THEM. Do not drop the "Initial in box" header!
-#                - Even if the 3rd column is empty, YOU MUST OUTPUT 3 COLUMNS FOR EVERY ROW. Example: `<tr><td>4.</td><td>Translated text...</td><td></td></tr>`.
+#             3. THE 3-COLUMN TABLE RULE: The main data table ALWAYS has exactly 3 columns. Even if it continues onto the next page and the 3rd column is empty, YOU MUST OUTPUT 3 COLUMNS FOR EVERY ROW. Example: `<tr><td>4.</td><td>Translated text...</td><td></td></tr>`. Use `<table class="grid-table">`.
             
 #             4. CHECKBOXES & ABBREVIATIONS: 
 #                - Wherever you see an empty square box `[ ]`, you MUST output the Unicode character `&#9744;`.
 #                - "S/o, W/o., D/o:" MUST be translated into {lang} as the equivalent of "Son of, Wife of, Daughter of:".
             
-#             5. GRAMMAR & FRAGMENTED SENTENCES: If a sentence is visually broken by blank spaces in the image (e.g., "Address [BLANK] of [BLANK] the [BLANK] subject"), DO NOT translate word-by-word. Combine it into ONE fluent, grammatically correct sentence in {lang} and place a single [BLANK] at the end. (Example: "Subject Address: [BLANK]").
+#             5. GRAMMAR & FRAGMENTED SENTENCES: If a sentence is visually broken by blank spaces in the image (e.g., "Address [BLANK] of [BLANK] the [BLANK] subject"), DO NOT translate word-by-word. Combine it into ONE fluent, grammatically correct sentence in {lang} and place a single [BLANK] at the end.
             
-#             6. GLOSSARY (CRITICAL): 
+#             6. VISUAL HIERARCHY (CRITICAL): 
+#                - Use `<h1>` for the main document title at the very top.
+#                - Use `<h2>` for section headers.
+#                - Use `<p>` for normal body text.
+            
+#             7. GLOSSARY: 
 #                - "Subject" MUST be translated INTO {lang} as the local word for the person participating in the study. ABSOLUTELY DO NOT output the English words "Participant/Patient" in the final HTML.
-#                - "Initial in box" = "Signature/Mark in box" in {lang}.
+#                - "Initial" = "Signature/Sign" in {lang}.
 #                - Do not translate emails or numbers.
 #             </CRITICAL_INSTRUCTIONS>
             
@@ -238,6 +244,7 @@ def vision_translation_node(state: PDFState) -> dict:
             
             raw_text_clean = re.sub(r'\s+', ' ', raw_text).strip()
             
+            # THE SOTA NATURAL PROMPT
             prompt = f"""
             <ROLE>You are an Expert Frontend Developer and Medical/Legal Translator.</ROLE>
             <TASK>Recreate the visual layout of the provided document image using HTML5, and translate ALL text into {lang}.</TASK>
@@ -248,32 +255,28 @@ def vision_translation_node(state: PDFState) -> dict:
             </RAW_TEXT_REFERENCE>
             
             <CRITICAL_INSTRUCTIONS>
-            1. THE [BLANK] TOKEN (CRITICAL): Wherever you see a physical line meant for handwriting (e.g., "Date: ______"), you MUST insert the exact text token `[BLANK]`. DO NOT type underscores. DO NOT skip them.
+            1. MISSING BLANK LINES (CRITICAL): The RAW_TEXT_REFERENCE above strips out blank lines. You MUST look at the IMAGE. Wherever you see a physical line meant for handwriting (e.g., "Date: ______"), you MUST type underscores `_________` in your HTML. DO NOT skip them.
             
-            2. THE SIGNATURE TABLE RULE (CRITICAL): For side-by-side signature blocks (Name, Signature, Date) at the bottom of pages, you are FORBIDDEN from using normal paragraphs. You MUST use this exact HTML:
+            2. SIGNATURE TABLES (CRITICAL): For side-by-side signature blocks (Name, Signature, Date) at the bottom of pages, you MUST use this exact HTML. DO NOT forget the underscores!
                <table class="signature-table">
                  <tr>
-                   <td>[BLANK]<br>Name</td>
-                   <td>[BLANK]<br>Signature</td>
-                   <td>[BLANK]<br>Date</td>
+                   <td>_________<br>Name</td>
+                   <td>_________<br>Signature</td>
+                   <td>_________<br>Date</td>
                  </tr>
                </table>
                
-            3. THE 3-COLUMN TABLE RULE: The main data table ALWAYS has exactly 3 columns. Even if it continues onto the next page and the 3rd column is empty, YOU MUST OUTPUT 3 COLUMNS FOR EVERY ROW. Example: `<tr><td>4.</td><td>Translated text...</td><td></td></tr>`. Use `<table class="grid-table">`.
+            3. THE 3-COLUMN TABLE RULE (CRITICAL): The main data table (with items 1 through 6) ALWAYS has exactly 3 columns. 
+               - If it continues onto the next page, YOU MUST KEEP 3 COLUMNS. 
+               - The 3rd column is an empty box for initials. DO NOT put checkboxes `[ ]` in it. Output an empty `<td></td>` for the 3rd column in every row.
+               - Use `<table class="grid-table">` for visible grids.
             
-            4. CHECKBOXES & ABBREVIATIONS: 
-               - Wherever you see an empty square box `[ ]`, you MUST output the Unicode character `&#9744;`.
-               - "S/o, W/o., D/o:" MUST be translated into {lang} as the equivalent of "Son of, Wife of, Daughter of:".
+            4. CHECKBOXES: Use literal text `[ ]` for unchecked and `[X]` for checked.
             
-            5. GRAMMAR & FRAGMENTED SENTENCES: If a sentence is visually broken by blank spaces in the image (e.g., "Address [BLANK] of [BLANK] the [BLANK] subject"), DO NOT translate word-by-word. Combine it into ONE fluent, grammatically correct sentence in {lang} and place a single [BLANK] at the end.
+            5. GRAMMAR: If a sentence is broken by blanks (e.g., "Address ____ of ____ subject"), combine it into ONE fluent sentence in {lang} and place the underscores at the end.
             
-            6. VISUAL HIERARCHY (CRITICAL): 
-               - Use `<h1>` for the main document title at the very top.
-               - Use `<h2>` for section headers.
-               - Use `<p>` for normal body text.
-            
-            7. GLOSSARY: 
-               - "Subject" MUST be translated INTO {lang} as the local word for the person participating in the study. ABSOLUTELY DO NOT output the English words "Participant/Patient" in the final HTML.
+            6. GLOSSARY: 
+               - "Subject" MUST be translated INTO {lang} as the local word for the person participating in the study. ABSOLUTELY DO NOT output the English words "Participant/Patient".
                - "Initial" = "Signature/Sign" in {lang}.
                - Do not translate emails or numbers.
             </CRITICAL_INSTRUCTIONS>
@@ -294,10 +297,12 @@ def vision_translation_node(state: PDFState) -> dict:
                     response = llm.invoke([message])
                     clean_html = response.content.replace("```html", "").replace("```", "").strip()
                     
-                    # THE TOKEN SWAP
-                    clean_html = clean_html.replace("[BLANK]", '<span class="form-blank"></span>')
+                    # THE REGEX SWAP: Converts AI underscores into perfect CSS lines
                     clean_html = re.sub(r'([_—\-]\s*){3,}', '<span class="form-blank"></span>', clean_html)
+                    # Convert AI text brackets to Unicode Checkboxes
+                    clean_html = clean_html.replace('[ ]', '☐').replace('[X]', '☑').replace('[x]', '☑')
                     
+                    # Repair broken HTML tags
                     soup = BeautifulSoup(clean_html, "html.parser")
                     repaired_html = str(soup)
                     
@@ -327,6 +332,7 @@ def vision_translation_node(state: PDFState) -> dict:
             """
             return page_num, fallback_html
 
+        # CLOUD OPTIMIZATION: max_workers=2
         tasks = [(i, img, txt) for i, (img, txt) in enumerate(zip(page_images, page_texts))]
         results_unordered = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
